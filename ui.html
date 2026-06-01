@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="ui.css" />
+  
+</head>
+<body>
+  <header>
+    <div class="header-title">
+      <img src="assets/wiz-16x16.png" width="16" height="16">
+      Wizard101
+    </div>
+    <div class="header-controls">
+      <button id="minimize"></button>
+      <button id="close"></button>
+    </div>
+  </header>
+  <main>
+    <section>
+      <div class="page-controls">
+        <button></button>
+        <h1 id="page-title"></h1>
+        <button></button>
+      </div>
+      <div id="news" class="page" data-title="Ravenwood News"></div>
+      <div id="settings" class="page" data-title="Settings" hidden>
+        <div class="field-row-stacked">
+          <label for="install-dir">
+            Wizard101 Install Directory
+            <div class="tooltip-wrap">
+              <img src="assets/help.png" width="10" height="10">
+              <div class="tooltip-popup">
+                <div class="tooltip-header">Install Location</div>
+                <div class="tooltip-body">Where your game is installed. *only change if empty or you know what you're doing</div>
+              </div>
+            </div>
+          </label>
+          <input type="text" id="install-dir">
+        </div>
+        <div class="field-row">
+          <input type="checkbox" id="fixed-window-size">
+          <label for="fixed-window-size">
+            Fixed Window Size
+            <div class="tooltip-wrap">
+              <img src="assets/help.png" width="10" height="10">
+              <div class="tooltip-popup">
+                <div class="tooltip-header">Fixed Window Size</div>
+                <div class="tooltip-body">Locks the window to exactly 800x600 pixels regardless of display scaling. Disable if the window appears too small on a high-DPI display. *requires restart of launcher</div>
+              </div>
+            </div>
+          </label>
+        </div>
+        <div class="field-row">
+          <input type="checkbox" id="remember-password">
+          <label for="remember-password">
+            Remember Password
+            <div class="tooltip-wrap">
+              <img src="assets/help.png" width="10" height="10">
+              <div class="tooltip-popup">
+                <div class="tooltip-header">Remember Password</div>
+                <div class="tooltip-body">Saves your password encrypted using your Windows account. It can only be decrypted on this machine by you.</div>
+              </div>
+            </div>
+          </label>
+        </div>
+        <div class="field-row">
+          <input type="checkbox" id="quick-launch">
+          <label for="quick-launch">
+            Quick Launch
+            <div class="tooltip-wrap">
+              <img src="assets/help.png" width="10" height="10">
+              <div class="tooltip-popup">
+                <div class="tooltip-header">Quick Launch</div>
+                <div class="tooltip-body">Skips patching the game and launches immediately. *will not work after a game update</div>
+              </div>
+            </div>
+          </label>
+        </div>
+        <div class="field-row-stacked">
+          <label for="starting-page">
+            Start Page
+            <div class="tooltip-wrap">
+              <img src="assets/help.png" width="10" height="10">
+              <div class="tooltip-popup">
+                <div class="tooltip-header">Start Page</div>
+                <div class="tooltip-body">Changes what page the launcher opens to.</div>
+              </div>
+            </div>
+          </label>
+          <select id="starting-page">
+            <option selected>Ravenwood News</option>
+            <option>Settings</option>
+          </select>
+        </div>
+        <button id="save-settings">Save</button>
+      </div>
+      <div class="section-footer">
+        <a href="https://www.wizard101.com/CustomerSupport/game">
+          <span style="padding-left: 15px">CONTACT <br>SUPPORT</span>
+          <img src="assets/support.png" width="48" height="54" style="right: 80px">
+        </a>
+        <a href="https://forms.gle/todApLn9NYf4vtju7">
+          <span style="padding-right: 15px">REPORT <br>A BUG</span>
+          <img src="assets/bug.png" width="48" height="48" style="left: 75px">
+        </a>
+      </div>
+    </section>
+    <a href="https://www.wizard101.com/game">
+      <img src="assets/w101-logo.webp" width="312" height="180">
+    </a>
+    <aside><b>NEVER</b> share your password - you will lose your Wizard forever!</aside>
+  </main>
+  <footer>
+    <button style="margin-right: 6px" onclick="__renderPage('Settings')">Settings</button>
+    <div id="login-fields" class="footer-fields">
+      <div class="field-row-stacked" style="margin-right: 12px">
+        <label for="username">Username</label>
+        <input type="text" id="username">
+      </div>
+      <div class="field-row-stacked" style="margin-right: 14px">
+        <label for="password">Password</label>
+        <input type="password" id="password">
+      </div>
+      <div class="field-row" style="margin-bottom: 8px">
+        <input type="checkbox" id="remember-username">
+        <label for="remember-username">Remember Username</label>
+      </div>
+      <button style="margin-left: 42px" id="login">Login</button>
+    </div>
+    <div id="play-fields" class="footer-fields">
+      <div class="field-row-stacked">
+        <label>File Progress<span id="file-name"></span></label>
+        <progress id="file-progress" value="0" max="100"></progress>
+      </div>
+      <div class="field-row-stacked">
+        <label>Total Progress</label>
+        <progress id="total-progress" value="0" max="100"></progress>
+      </div>
+      <button style="margin-left: 8px" id="play" disabled>PLAY!</button>
+    </div>
+  </footer>
+<script>
+  const pages = Array.from(document.querySelectorAll('.page'));
+  const pageControls = document.querySelector('.page-controls');
+  let currentPageIndex = 0;
+
+  function __showPageAtIndex(index) {
+    currentPageIndex = ((index % pages.length) + pages.length) % pages.length;
+    pages.forEach((page, i) => {
+      const selected = i === currentPageIndex;
+      page.setAttribute('aria-selected', selected ? 'true' : 'false');
+      page.hidden = !selected;
+    });
+    document.getElementById('page-title').textContent = pages[currentPageIndex].dataset.title;
+  }
+
+  function __renderPage(title) {
+    const index = pages.findIndex((page) => page.dataset.title === title);
+    if (index === -1) return;
+    __showPageAtIndex(index);
+  }
+
+  function __stepPage(delta) {
+    __showPageAtIndex(currentPageIndex + delta);
+  }
+
+  pageControls.firstElementChild.addEventListener('click', () => __stepPage(-1));
+  pageControls.lastElementChild.addEventListener('click', () => __stepPage(1));
+
+  const defaultIndex = pages.findIndex((page) => page.id === 'news');
+  __showPageAtIndex(defaultIndex === -1 ? 0 : defaultIndex);
+
+  function __renderNews(items) {
+    const base      = 'https://www.wizard101.com';
+    const abs       = (url) => url && url.startsWith('/') ? base + url : url;
+    const fixLinks  = (html) => html.replace(/href="(\/[^"]*)"/g, (_, p) => `href="${abs(p)}"`);
+
+    const news = document.getElementById('news');
+
+    for (const item of items) {
+      const article = document.createElement('article');
+
+      const figure = document.createElement('figure');
+      const img    = document.createElement('img');
+      img.src = item.img_src;
+      if (item.img_w) img.width  = item.img_w - 35;
+      if (item.img_h) img.height = item.img_h - 35;
+
+      if (item.img_href) {
+        const a = document.createElement('a');
+        a.href = item.img_href;
+        a.appendChild(img);
+        figure.appendChild(a);
+      } else {
+        figure.appendChild(img);
+      }
+
+      const p = document.createElement('p');
+      p.innerHTML = fixLinks(item.body);
+
+      article.appendChild(figure);
+      article.appendChild(p);
+      news.appendChild(article);
+    }
+  }
+
+  // -- C++ -> JS (called via ExecuteScript) -------------------------------------
+
+  function __showPatchProgress() {
+    document.getElementById('login-fields').style.display = 'none';
+    document.getElementById('play-fields').style.display  = 'flex';
+  }
+
+  function __setFileProgress(name, percent) {
+    const short = name.split('/').pop();
+    document.getElementById('file-name').textContent = short;
+    document.getElementById('file-progress').value   = percent;
+  }
+
+  function __setOverallProgress(percent) {
+    document.getElementById('total-progress').value = percent;
+    if (percent >= 100) {
+      document.getElementById('file-progress').value = 100;
+      document.getElementById('file-name').textContent = 'Download Complete!';
+      const btn = document.getElementById('play');
+      btn.disabled = false;
+      btn.removeAttribute('disabled');
+    }
+  }
+
+  function __showLoginError() {
+    const btn = document.getElementById('login');
+    btn.disabled    = false;
+    btn.textContent = 'Login';
+  }
+
+  // -- JS -> C++ (postMessage bridge) -------------------------------------
+
+  document.getElementById('login').addEventListener('click', () => {
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value;
+    if (!username || !password) return;
+
+    const remember = document.getElementById('remember-username').checked;
+    window.chrome.webview.postMessage(
+      JSON.stringify({ action: 'login', username, password, remember })
+    );
+  });
+
+  function __setRememberedUsername(name) {
+    if (!name) return;
+    document.getElementById('username').value = name;
+    document.getElementById('remember-username').checked = true;
+  }
+
+  function __setRememberedPassword(password) {
+    if (!password) return;
+    document.getElementById('password').value = password;
+  }
+
+  // Called once on load by the C++ backend to populate settings fields and
+  // navigate to the user's chosen starting page.
+  function __initSettings(installDir, fixedWindowSize, quickLaunch, rememberPassword, startingPage) {
+    document.getElementById('install-dir').value = installDir;
+    document.getElementById('fixed-window-size').checked = fixedWindowSize;
+    document.getElementById('quick-launch').checked = quickLaunch;
+    document.getElementById('remember-password').checked = rememberPassword;
+
+    const select = document.getElementById('starting-page');
+    for (let i = 0; i < select.options.length; i++) {
+      if (select.options[i].value === startingPage) {
+        select.selectedIndex = i;
+        break;
+      }
+    }
+
+    if (startingPage) __renderPage(startingPage);
+  }
+
+  document.getElementById('save-settings').addEventListener('click', () => {
+    const installDir       = document.getElementById('install-dir').value;
+    const fixedWindowSize  = document.getElementById('fixed-window-size').checked;
+    const quickLaunch      = document.getElementById('quick-launch').checked;
+    const rememberPassword = document.getElementById('remember-password').checked;
+    const startingPage     = document.getElementById('starting-page').value;
+    window.chrome.webview.postMessage(
+      JSON.stringify({ action: 'save_settings', install_dir: installDir,
+                       fixed_window_size: fixedWindowSize,
+                       quick_launch: quickLaunch,
+                       remember_password: rememberPassword,
+                       starting_page: startingPage })
+    );
+  });
+
+  (function () {
+    const n = Math.floor(Math.random() * 15) + 1;
+    const style = document.createElement('style');
+    style.textContent = `main::before { background-image: url('assets/backgrounds/${n}.webp'); }`;
+    document.head.appendChild(style);
+  })();
+
+  document.getElementById('play').addEventListener('click', () => {
+    window.chrome.webview.postMessage(JSON.stringify({ action: 'play' }));
+  });
+
+  document.querySelector('.header-title').addEventListener('mousedown', (e) => {
+    if (e.button === 0)
+      window.chrome.webview.postMessage(JSON.stringify({ action: 'drag' }));
+  });
+
+  document.getElementById('minimize').addEventListener('click', () => {
+    window.chrome.webview.postMessage(JSON.stringify({ action: 'minimize' }));
+  });
+
+  document.getElementById('close').addEventListener('click', () => {
+    window.chrome.webview.postMessage(JSON.stringify({ action: 'close' }));
+  });
+</script>
+</body>
+</html>

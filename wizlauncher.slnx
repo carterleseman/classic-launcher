@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="wizlauncher.vcxproj" Id="d0241ff0-f740-41be-a043-289ce5c25a44" />
+</Solution>

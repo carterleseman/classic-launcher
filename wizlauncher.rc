@@ -1,0 +1,62 @@
+#include "resource_ids.h"
+
+// ---------------------------------------------------------------------------
+//  Application icon : lowest-numbered ICON resource becomes the .exe icon
+// ---------------------------------------------------------------------------
+IDI_APP_ICON            ICON    "wiz.ico"
+
+// ---------------------------------------------------------------------------
+//  UI entry points
+// ---------------------------------------------------------------------------
+IDR_UI_HTML             RCDATA  "ui.html"
+IDR_UI_CSS              RCDATA  "ui.css"
+
+// ---------------------------------------------------------------------------
+//  Assets : root
+// ---------------------------------------------------------------------------
+IDR_ASSET_BANNER        RCDATA  "assets/banner.webp"
+IDR_ASSET_BUG           RCDATA  "assets/bug.png"
+IDR_ASSET_BUTTON_BG     RCDATA  "assets/button-background.png"
+IDR_ASSET_BUTTON_CLOSE  RCDATA  "assets/button-close.png"
+IDR_ASSET_BUTTON_DOWN   RCDATA  "assets/button-down.png"
+IDR_ASSET_BUTTON_MINIMIZE RCDATA "assets/button-minimize.png"
+IDR_ASSET_BUTTON_UP     RCDATA  "assets/button-up.png"
+IDR_ASSET_BUTTON        RCDATA  "assets/button.png"
+IDR_ASSET_CHECKBOX_CHECKED RCDATA "assets/checkbox-checked.png"
+IDR_ASSET_CHECKBOX      RCDATA  "assets/checkbox.png"
+IDR_ASSET_PAGE_CHECKBOX RCDATA  "assets/page-checkbox.png"
+IDR_ASSET_FILE_PROG_BORDER RCDATA "assets/file-progress-border.png"
+IDR_ASSET_FOOTER_BG     RCDATA  "assets/footer-background.webp"
+IDR_ASSET_INPUT_BG      RCDATA  "assets/input-background.png"
+IDR_ASSET_SECTION_BG    RCDATA  "assets/section-background.webp"
+IDR_ASSET_SUPPORT       RCDATA  "assets/support.png"
+IDR_ASSET_TAB_BUTTON    RCDATA  "assets/tab-button.png"
+IDR_ASSET_TOTAL_PROG_BAR RCDATA "assets/total-progress-bar.png"
+IDR_ASSET_W101_LOGO     RCDATA  "assets/w101-logo.webp"
+IDR_ASSET_WINDOW_BORDER RCDATA  "assets/window-border.webp"
+IDR_ASSET_WIZ_16X16     RCDATA  "assets/wiz-16x16.png"
+IDR_ASSET_HELP          RCDATA  "assets/help.png"
+
+// ---------------------------------------------------------------------------
+//  Assets : backgrounds
+// ---------------------------------------------------------------------------
+IDR_BG_1                RCDATA  "assets/backgrounds/1.webp"
+IDR_BG_2                RCDATA  "assets/backgrounds/2.webp"
+IDR_BG_3                RCDATA  "assets/backgrounds/3.webp"
+IDR_BG_4                RCDATA  "assets/backgrounds/4.webp"
+IDR_BG_5                RCDATA  "assets/backgrounds/5.webp"
+IDR_BG_6                RCDATA  "assets/backgrounds/6.webp"
+IDR_BG_7                RCDATA  "assets/backgrounds/7.webp"
+IDR_BG_8                RCDATA  "assets/backgrounds/8.webp"
+IDR_BG_9                RCDATA  "assets/backgrounds/9.webp"
+IDR_BG_10               RCDATA  "assets/backgrounds/10.webp"
+IDR_BG_11               RCDATA  "assets/backgrounds/11.webp"
+IDR_BG_12               RCDATA  "assets/backgrounds/12.webp"
+IDR_BG_13               RCDATA  "assets/backgrounds/13.webp"
+IDR_BG_14               RCDATA  "assets/backgrounds/14.webp"
+IDR_BG_15               RCDATA  "assets/backgrounds/15.webp"
+
+// ---------------------------------------------------------------------------
+//  Assets : fonts
+// ---------------------------------------------------------------------------
+IDR_FONT_WIZARD_FANCY   RCDATA  "assets/fonts/wizard_fancy.woff"
