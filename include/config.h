@@ -32,7 +32,13 @@ struct AppConfig {
     // which looks correct on high-DPI displays but may appear blurry.
     bool fixed_window_size = true;
 
+    // Skip patching and launch the gamne immediately after login.
     bool quick_launch = false;
+
+    // Delegate authentication to WizardGraphicalClient's own login UI instead
+    // of wizlauncher's TCP auth.  The game is launched with -L (no -U) and
+    // credentials are typed into the in-game login screen via WM_CHAR.
+    bool use_orig_auth = false;
 
     // Page to show on startup : matches a page's data-title attribute.
     // Empty means the default (Ravenwood News).

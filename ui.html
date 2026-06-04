@@ -31,7 +31,7 @@
             Wizard101 Install Directory
             <div class="tooltip-wrap">
               <img src="assets/help.png" width="10" height="10">
-              <div class="tooltip-popup">
+              <div class="tooltip-popup left">
                 <div class="tooltip-header">Install Location</div>
                 <div class="tooltip-body">Where your game is installed. *only change if empty or you know what you're doing</div>
               </div>
@@ -73,7 +73,20 @@
               <img src="assets/help.png" width="10" height="10">
               <div class="tooltip-popup">
                 <div class="tooltip-header">Quick Launch</div>
-                <div class="tooltip-body">Skips patching the game and launches immediately. *will not work after a game update</div>
+                <div class="tooltip-body">Skips patching the game and launches immediately. *disable after a game update</div>
+              </div>
+            </div>
+          </label>
+        </div>
+        <div class="field-row">
+          <input type="checkbox" id="use-orig-auth">
+          <label for="use-orig-auth">
+            Use Original Authentication
+            <div class="tooltip-wrap">
+              <img src="assets/help.png" width="10" height="10">
+              <div class="tooltip-popup top left">
+                <div class="tooltip-header">Use Original Authentication</div>
+                <div class="tooltip-body">Uses the graphical client quick launcher login interface to authenticate with the server instead of using the custom logic shipped with this launcher. *for the paranoid</div>
               </div>
             </div>
           </label>
@@ -262,10 +275,11 @@
 
   // Called once on load by the C++ backend to populate settings fields and
   // navigate to the user's chosen starting page.
-  function __initSettings(installDir, fixedWindowSize, quickLaunch, rememberPassword, startingPage) {
+  function __initSettings(installDir, fixedWindowSize, quickLaunch, useOrigAuth, rememberPassword, startingPage) {
     document.getElementById('install-dir').value = installDir;
     document.getElementById('fixed-window-size').checked = fixedWindowSize;
     document.getElementById('quick-launch').checked = quickLaunch;
+    document.getElementById('use-orig-auth').checked = useOrigAuth;
     document.getElementById('remember-password').checked = rememberPassword;
 
     const select = document.getElementById('starting-page');
@@ -283,12 +297,14 @@
     const installDir       = document.getElementById('install-dir').value;
     const fixedWindowSize  = document.getElementById('fixed-window-size').checked;
     const quickLaunch      = document.getElementById('quick-launch').checked;
+    const useOrigAuth      = document.getElementById('use-orig-auth').checked;
     const rememberPassword = document.getElementById('remember-password').checked;
     const startingPage     = document.getElementById('starting-page').value;
     window.chrome.webview.postMessage(
       JSON.stringify({ action: 'save_settings', install_dir: installDir,
                        fixed_window_size: fixedWindowSize,
                        quick_launch: quickLaunch,
+                       use_orig_auth: useOrigAuth,
                        remember_password: rememberPassword,
                        starting_page: startingPage })
     );

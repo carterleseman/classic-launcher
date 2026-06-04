@@ -261,6 +261,16 @@ h1 {
   pointer-events: none;
 }
 
+.tooltip-popup.top {
+  top: unset;
+  bottom: calc(100% + 6px);
+}
+
+.tooltip-popup.left {
+  left: unset;
+  right: 0;
+}
+
 .tooltip-header {
   background: #A0D7FB;
   font-weight: bold;

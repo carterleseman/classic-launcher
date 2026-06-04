@@ -144,6 +144,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="src\config.cpp" />
+    <ClCompile Include="src\launcher.cpp" />
     <ClCompile Include="src\crypto.cpp" />
     <ClCompile Include="src\dml.cpp" />
     <ClCompile Include="src\logger.cpp" />
@@ -162,6 +163,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\config.h" />
+    <ClInclude Include="include\launcher.h" />
     <ClInclude Include="include\crypto.h" />
     <ClInclude Include="include\dml.h" />
     <ClInclude Include="include\logger.h" />

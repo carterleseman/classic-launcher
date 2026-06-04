@@ -374,6 +374,9 @@ void config_save(const AppConfig& cfg)
     if (cfg.quick_launch)
         f << ",\n  \"quick_launch\": true";
 
+    if (cfg.use_orig_auth)
+        f << ",\n  \"use_orig_auth\": true";
+
     if (!cfg.starting_page.empty())
         f << ",\n  \"starting_page\": \"" << json_escape(cfg.starting_page) << "\"";
 
@@ -406,6 +409,7 @@ AppConfig config_load()
             cfg.hwid                = json_get(json, "hwid");
             cfg.fixed_window_size   = json_get_bool(json, "fixed_window_size", true);
             cfg.quick_launch        = json_get_bool(json, "quick_launch");
+            cfg.use_orig_auth       = json_get_bool(json, "use_orig_auth");
             cfg.starting_page       = json_get(json, "starting_page");
             cfg.remembered_username = json_get(json, "remembered_username");
             cfg.remember_password   = json_get_bool(json, "remember_password");

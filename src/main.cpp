@@ -23,6 +23,7 @@ static const int      WINDOW_HEIGHT = 600;
 #include "crypto.h"
 #include "logger.h"
 #include "resource_ids.h"
+#include "launcher.h"
 
 #include <thread>
 
@@ -82,6 +83,11 @@ static bool g_news_ready   = false; // true after WM_NEWS_READY is handled
 // Written by the login background thread before patching begins
 static LoginResult  g_login_result{};
 
+// original auth mode only: credentials saved when the user clicks Login so
+// they can be typed into the graphical interface
+static std::string  g_pending_username;
+static std::string  g_pending_password;
+
 
 // ---------------------------------------------------------------------------
 // Narrow-string helper : converts ASCII-range wstring to string.
@@ -134,52 +140,6 @@ static bool json_get_wbool(const std::wstring& json, const std::wstring& key)
     pos += needle.size();
     while (pos < json.size() && (json[pos] == L' ' || json[pos] == L'\t')) ++pos;
     return pos + 4 <= json.size() && json.substr(pos, 4) == L"true";
-}
-
-// ---------------------------------------------------------------------------
-// Launches WizardGraphicalClient.exe with the saved login credentials.
-// ---------------------------------------------------------------------------
-static void launch_game(const LoginResult& r)
-{
-    std::string exe = g_config.install_dir
-                    + "\\Bin\\WizardGraphicalClient.exe";
-
-    LOG_STAT("CORE_LAUNCH", "exe : " + exe);
-
-    std::string cmd = "\"" + exe + "\""
-                    + " -L login.us.wizard101.com 12000"
-                    + " -PT " + std::to_string(g_patch_elapsed_secs)
-                    + " -U .." + std::to_string(r.user_id)
-                    + " "      + r.ck2
-                    + " "      + r.username;
-
-    LOG_STAT("CORE_LAUNCH", "cmd : " + cmd);
-
-    std::vector<char> cmd_buf(cmd.begin(), cmd.end());
-    cmd_buf.push_back('\0');
-
-    STARTUPINFOA si{};
-    si.cb = sizeof(si);
-    PROCESS_INFORMATION pi{};
-
-    std::string bin_dir = g_config.install_dir + "\\Bin";
-
-    if (CreateProcessA(exe.c_str(), cmd_buf.data(),
-                       nullptr, nullptr, FALSE, 0,
-                       nullptr, bin_dir.c_str(), &si, &pi))
-    {
-        CloseHandle(pi.hThread);
-        CloseHandle(pi.hProcess);
-        PostMessage(g_hwnd, WM_CLOSE, 0, 0);
-    }
-    else
-    {
-        DWORD err = GetLastError();
-        std::string msg = "CreateProcess failed (error " + std::to_string(err) + ").\n"
-                        + "Executable: " + exe;
-        LOG_ERR("CORE_LAUNCH", msg);
-        MessageBoxA(g_hwnd, msg.c_str(), "Launch Failed", MB_OK | MB_ICONERROR);
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -269,6 +229,22 @@ static void run_login_and_patch(std::string username, std::string password)
                     reinterpret_cast<LPARAM>(new std::string(
                         "Game installation directory is not set.\n"
                         "Check that install_dir is present in config.json.")));
+        return;
+    }
+
+    if (g_config.use_orig_auth) {
+        // Skip custom authentication : store credentials to
+        // type into the graphical client's login UI after it loads.
+        g_pending_username = username;
+        g_pending_password = password;
+        LOG_STAT("CORE_LOGIN", "using original auth");
+
+        if (g_config.quick_launch) {
+            LOG_STAT("CORE_LOGIN", "quick launch: skipping patch, launching immediately");
+            PostMessage(g_hwnd, WM_QUICK_LAUNCH, 0, 0);
+        } else {
+            run_patch();
+        }
         return;
     }
 
@@ -370,7 +346,7 @@ static void create_main_controller(ICoreWebView2Environment* env, HWND hwnd)
                 g_webview->get_Settings(&settings);
                 settings->put_AreDefaultContextMenusEnabled(FALSE);
                 settings->put_IsStatusBarEnabled(FALSE);
-                settings->put_AreDevToolsEnabled(FALSE);
+                settings->put_AreDevToolsEnabled(TRUE);
 
                 // One-shot handler: fires when ui.html finishes loading.
                 auto token = std::make_shared<EventRegistrationToken>();
@@ -428,6 +404,7 @@ static void create_main_controller(ICoreWebView2Environment* env, HWND hwnd)
                                 + js_str_escape(g_config.install_dir) + L"',"
                                 + (g_config.fixed_window_size  ? L"true" : L"false") + L","
                                 + (g_config.quick_launch       ? L"true" : L"false") + L","
+                                + (g_config.use_orig_auth      ? L"true" : L"false") + L","
                                 + (g_config.remember_password  ? L"true" : L"false") + L","
                                 + L"'" + w_starting_page + L"');";
                             sender->ExecuteScript(settings_script.c_str(), nullptr);
@@ -482,6 +459,7 @@ static void create_main_controller(ICoreWebView2Environment* env, HWND hwnd)
                                 g_config.install_dir        = wstring_to_narrow(json_get_wstring(msg, L"install_dir"));
                                 g_config.fixed_window_size  = json_get_wbool(msg, L"fixed_window_size");
                                 g_config.quick_launch       = json_get_wbool(msg, L"quick_launch");
+                                g_config.use_orig_auth      = json_get_wbool(msg, L"use_orig_auth");
                                 g_config.remember_password  = json_get_wbool(msg, L"remember_password");
                                 g_config.starting_page      = wstring_to_narrow(json_get_wstring(msg, L"starting_page"));
                                 // Clear the stored blob when the feature is turned off.
@@ -491,7 +469,19 @@ static void create_main_controller(ICoreWebView2Environment* env, HWND hwnd)
                                 LOG_STAT("CORE_CONFIG", "Settings saved.");
                             }
                             else if (action == L"play") {
-                                launch_game(g_login_result);
+                                if (g_config.use_orig_auth)
+                                    launch_orig_auth(g_config.install_dir,
+                                                     g_patch_elapsed_secs,
+                                                     g_hwnd,
+                                                     g_pending_username,
+                                                     g_pending_password);
+                                else
+                                    launch_authenticated(g_config.install_dir,
+                                                         g_patch_elapsed_secs,
+                                                         g_hwnd,
+                                                         g_login_result.ck2,
+                                                         g_login_result.user_id,
+                                                         g_login_result.username);
                             }
                             else if (action == L"drag") {
                                 ReleaseCapture();
@@ -552,6 +542,7 @@ static void create_main_controller(ICoreWebView2Environment* env, HWND hwnd)
 
                 resize_webview(hwnd);
                 g_webview->Navigate(uri.c_str());
+                g_webview->OpenDevToolsWindow();
 
                 return S_OK;
             }
@@ -869,7 +860,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ PWSTR, _I
     HWND hwnd = create_window(hInstance, nCmdShow);
     if (!hwnd) return 1;
 
-    {
+    if (!g_config.use_orig_auth) {
         std::string err = validate_login_messages_xml();
         if (!err.empty()) {
             LOG_ERR("CORE_VALIDATE", err);
@@ -967,7 +958,19 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
     // Quick-launch: login succeeded with patching skipped; fire the game now.
     case WM_QUICK_LAUNCH:
-        launch_game(g_login_result);
+        if (g_config.use_orig_auth)
+            launch_orig_auth(g_config.install_dir,
+                             g_patch_elapsed_secs,
+                             g_hwnd,
+                             g_pending_username,
+                             g_pending_password);
+        else
+            launch_authenticated(g_config.install_dir,
+                                 g_patch_elapsed_secs,
+                                 g_hwnd,
+                                 g_login_result.ck2,
+                                 g_login_result.user_id,
+                                 g_login_result.username);
         return 0;
 
     // Login failure: show a message box and re-enable the login button.
