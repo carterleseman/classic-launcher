@@ -346,7 +346,7 @@ static void create_main_controller(ICoreWebView2Environment* env, HWND hwnd)
                 g_webview->get_Settings(&settings);
                 settings->put_AreDefaultContextMenusEnabled(FALSE);
                 settings->put_IsStatusBarEnabled(FALSE);
-                settings->put_AreDevToolsEnabled(TRUE);
+                settings->put_AreDevToolsEnabled(FALSE);
 
                 // One-shot handler: fires when ui.html finishes loading.
                 auto token = std::make_shared<EventRegistrationToken>();
@@ -542,7 +542,6 @@ static void create_main_controller(ICoreWebView2Environment* env, HWND hwnd)
 
                 resize_webview(hwnd);
                 g_webview->Navigate(uri.c_str());
-                g_webview->OpenDevToolsWindow();
 
                 return S_OK;
             }
