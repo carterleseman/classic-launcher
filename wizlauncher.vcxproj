@@ -143,6 +143,8 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\json.cpp" />
+    <ClCompile Include="src\accounts.cpp" />
     <ClCompile Include="src\config.cpp" />
     <ClCompile Include="src\launcher.cpp" />
     <ClCompile Include="src\crypto.cpp" />
@@ -162,6 +164,8 @@
     <ClCompile Include="src\utils\zutil.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="include\json.h" />
+    <ClInclude Include="include\accounts.h" />
     <ClInclude Include="include\config.h" />
     <ClInclude Include="include\launcher.h" />
     <ClInclude Include="include\crypto.h" />

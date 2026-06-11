@@ -1,4 +1,5 @@
 #include "config.h"
+#include "json.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -11,7 +12,6 @@
 #include <cctype>
 #include <cstdio>
 #include <cstring>
-#include <fstream>
 #include <sstream>
 #include <vector>
 
@@ -282,87 +282,10 @@ static std::string compute_hwid_smbios()
     return hex;
 }
 
-// ---------------------------------------------------------------------------
-//  JSON helpers
-// ---------------------------------------------------------------------------
-
-static size_t skip_ws(const std::string& s, size_t pos)
-{
-    while (pos < s.size() && (s[pos] == ' ' || s[pos] == '\t' ||
-                               s[pos] == '\r' || s[pos] == '\n'))
-        ++pos;
-    return pos;
-}
-
-static size_t json_find_value(const std::string& json, const std::string& key)
-{
-    std::string needle = "\"" + key + "\"";
-    auto pos = json.find(needle);
-    if (pos == std::string::npos) return std::string::npos;
-    pos = skip_ws(json, pos + needle.size());
-    if (pos >= json.size() || json[pos] != ':') return std::string::npos;
-    return skip_ws(json, pos + 1);
-}
-
-static std::string json_get(const std::string& json, const std::string& key)
-{
-    size_t pos = json_find_value(json, key);
-    if (pos == std::string::npos || pos >= json.size() || json[pos] != '"')
-        return {};
-    ++pos;
-    std::string val;
-    for (; pos < json.size(); ++pos) {
-        if (json[pos] == '\\' && pos + 1 < json.size()) { val += json[++pos]; continue; }
-        if (json[pos] == '"') break;
-        val += json[pos];
-    }
-    return val;
-}
-
-static bool json_get_bool(const std::string& json, const std::string& key,
-                          bool default_val = false)
-{
-    size_t pos = json_find_value(json, key);
-    if (pos == std::string::npos) return default_val;
-    if (pos + 4 <= json.size() && json.substr(pos, 4) == "true")  return true;
-    if (pos + 5 <= json.size() && json.substr(pos, 5) == "false") return false;
-    return default_val;
-}
-
-static std::string json_escape(const std::string& s)
-{
-    std::string out;
-    out.reserve(s.size());
-    for (char c : s) {
-        if (c == '\\') { out += "\\\\"; continue; }
-        if (c == '"')  { out += "\\\""; continue; }
-        out += c;
-    }
-    return out;
-}
-
-// ---------------------------------------------------------------------------
-
-static void ensure_dir(const std::string& path)
-{
-    auto slash = path.find_last_of("/\\");
-    if (slash == std::string::npos) return;
-    std::string dir = path.substr(0, slash);
-    for (size_t i = 0; i <= dir.size(); ++i) {
-        if (i == dir.size() || dir[i] == '/' || dir[i] == '\\') {
-            std::string partial(dir.begin(), dir.begin() + i);
-            if (!partial.empty())
-                CreateDirectoryA(partial.c_str(), nullptr);
-        }
-    }
-}
-
 void config_save(const AppConfig& cfg)
 {
     std::string path = config_path();
-    ensure_dir(path);
-    std::ofstream f(path, std::ios::trunc);
-    if (!f) return;
+    std::ostringstream f;
     f << "{\n"
       << "  \"install_dir\": \"" << json_escape(cfg.install_dir) << "\",\n"
       << "  \"uuid\": \""        << json_escape(cfg.uuid)        << "\",\n"
@@ -380,6 +303,12 @@ void config_save(const AppConfig& cfg)
     if (!cfg.starting_page.empty())
         f << ",\n  \"starting_page\": \"" << json_escape(cfg.starting_page) << "\"";
 
+    if (cfg.enable_accounts)
+        f << ",\n  \"enable_accounts\": true";
+
+    if (!cfg.selected_account.empty())
+        f << ",\n  \"selected_account\": \"" << json_escape(cfg.selected_account) << "\"";
+
     if (!cfg.remembered_username.empty())
         f << ",\n  \"remembered_username\": \"" << json_escape(cfg.remembered_username) << "\"";
 
@@ -390,6 +319,7 @@ void config_save(const AppConfig& cfg)
         f << ",\n  \"remembered_password\": \"" << json_escape(cfg.remembered_password) << "\"";
 
     f << "\n}\n";
+    json_write_text_file(path, f.str());
 }
 
 AppConfig config_load()
@@ -397,24 +327,20 @@ AppConfig config_load()
     AppConfig cfg;
     bool dirty = false;
 
-    std::string path = config_path();
-    {
-        std::ifstream f(path);
-        if (f) {
-            std::ostringstream ss;
-            ss << f.rdbuf();
-            std::string json = ss.str();
-            cfg.install_dir         = json_get(json, "install_dir");
-            cfg.uuid                = json_get(json, "uuid");
-            cfg.hwid                = json_get(json, "hwid");
-            cfg.fixed_window_size   = json_get_bool(json, "fixed_window_size", true);
-            cfg.quick_launch        = json_get_bool(json, "quick_launch");
-            cfg.use_orig_auth       = json_get_bool(json, "use_orig_auth");
-            cfg.starting_page       = json_get(json, "starting_page");
-            cfg.remembered_username = json_get(json, "remembered_username");
-            cfg.remember_password   = json_get_bool(json, "remember_password");
-            cfg.remembered_password = json_get(json, "remembered_password");
-        }
+    std::string json = json_read_text_file(config_path());
+    if (!json.empty()) {
+        cfg.install_dir         = json_get(json, "install_dir");
+        cfg.uuid                = json_get(json, "uuid");
+        cfg.hwid                = json_get(json, "hwid");
+        cfg.fixed_window_size   = json_get_bool(json, "fixed_window_size", true);
+        cfg.quick_launch        = json_get_bool(json, "quick_launch");
+        cfg.use_orig_auth       = json_get_bool(json, "use_orig_auth");
+        cfg.starting_page       = json_get(json, "starting_page");
+        cfg.enable_accounts     = json_get_bool(json, "enable_accounts");
+        cfg.selected_account    = json_get(json, "selected_account");
+        cfg.remembered_username = json_get(json, "remembered_username");
+        cfg.remember_password   = json_get_bool(json, "remember_password");
+        cfg.remembered_password = json_get(json, "remembered_password");
     }
 
     if (cfg.install_dir.empty()) {

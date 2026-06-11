@@ -1,6 +1,7 @@
 #include "patch_client.h"
 #include "dml.h"
 #include "logger.h"
+#include "json.h"
 
 #include <unordered_map>
 #include <string>
@@ -554,68 +555,21 @@ std::string patch_default_cache_path()
 // ---------------------------------------------------------------------------
 void patch_cache_save(const std::string& cache_path, const PatchCache& cache)
 {
-    auto sep = cache_path.find_last_of("/\\");
-    if (sep != std::string::npos) {
-        std::string dir(cache_path.begin(), cache_path.begin() + sep);
-        CreateDirectoryA(dir.c_str(), nullptr);
-    }
-
-    std::ofstream f(cache_path, std::ios::trunc);
-    if (!f)
-        throw std::runtime_error("patch_cache_save: cannot write " + cache_path);
-
-    f << "{\n";
-    bool first = true;
+    JsonU32Map normalized;
+    normalized.reserve(cache.size());
     for (const auto& kv : cache) {
-        if (!first) f << ",\n";
-        // Normalise any backslashes in the key to forward slashes.
         std::string key = kv.first;
-        for (auto& c : key) if (c == '\\') c = '/';
-        f << "  \"" << key << "\": " << kv.second;
-        first = false;
+        for (auto& c : key)
+            if (c == '\\') c = '/';
+        normalized[key] = kv.second;
     }
-    f << "\n}\n";
+    if (!json_write_text_file(cache_path, json_serialize_u32_map(normalized)))
+        throw std::runtime_error("patch_cache_save: cannot write " + cache_path);
 }
 
-// ---------------------------------------------------------------------------
-//  Minimal JSON reader : handles only the format written above.
-//  Lines of the form:   "key": 1234567890
-// ---------------------------------------------------------------------------
 PatchCache patch_cache_load(const std::string& cache_path)
 {
-    PatchCache cache;
-
-    std::ifstream f(cache_path);
-    if (!f) return cache; // missing file : empty cache, not an error
-
-    std::string line;
-    while (std::getline(f, line)) {
-        auto q1 = line.find('"');
-        if (q1 == std::string::npos) continue;
-        auto q2 = line.find('"', q1 + 1);
-        if (q2 == std::string::npos) continue;
-
-        std::string key = line.substr(q1 + 1, q2 - q1 - 1);
-        if (key.empty()) continue;
-
-        auto colon = line.find(':', q2 + 1);
-        if (colon == std::string::npos) continue;
-
-        std::string val_str = line.substr(colon + 1);
-        size_t vs = val_str.find_first_of("0123456789");
-        if (vs == std::string::npos) continue;
-        size_t ve = val_str.find_last_of("0123456789");
-        val_str = val_str.substr(vs, ve - vs + 1);
-
-        try {
-            uint32_t crc = static_cast<uint32_t>(std::stoul(val_str));
-            cache[key] = crc;
-        } catch (...) {
-            throw std::runtime_error("patch_cache_load: bad value for key \"" + key + "\"");
-        }
-    }
-
-    return cache;
+    return json_parse_u32_map(json_read_text_file(cache_path));
 }
 
 // ---------------------------------------------------------------------------

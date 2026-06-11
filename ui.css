@@ -178,6 +178,7 @@ h1 {
 }
 
 .page input[type=text],
+.page input[type=password],
 .page select {
   height: 21px;
   padding-left: 3px;
@@ -208,16 +209,22 @@ h1 {
   font-weight: bold;
 }
 
-.page#settings {
+.page:not(#news) {
   place-items: start;
   padding-left: 17px;
 }
 
-.page#settings > *:not(:last-child) {
+.page:not(#news) > p {
+  color: #000;
+  font-weight: bold;
+  margin: 0;
+}
+
+.page:not(#news) > *:not(:last-child) {
   margin-bottom: 18px;
 }
 
-.page#settings > button {
+.page button {
   display: block;
   color: #fff;
   border: 1px solid #005800;
@@ -233,11 +240,24 @@ h1 {
   cursor: pointer;
 }
 
-.page#settings > button:hover {
+.page button.default {
+  border-color: #481F01;
+  background: linear-gradient(
+    to bottom,
+    #C68247,
+    #481F01
+  );
+}
+
+.page button:hover {
   background: #005800;
 }
 
-.page#settings label {
+.page button.default:hover {
+  background: #481F01;
+}
+
+.page:not(#news) label {
   display: flex;
   gap: 10px;
 }

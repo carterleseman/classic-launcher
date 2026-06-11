@@ -44,6 +44,12 @@ struct AppConfig {
     // Empty means the default (Ravenwood News).
     std::string starting_page;
 
+    // When true, the accounts page is available in the page carousel.
+    bool enable_accounts = false;
+
+    // Username of the currently selected account.
+    std::string selected_account;
+
     // Last username the user chose to remember. Empty when not set.
     std::string remembered_username;
 

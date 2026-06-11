@@ -25,7 +25,28 @@
         <button></button>
       </div>
       <div id="news" class="page" data-title="Ravenwood News"></div>
+      <div id="accounts" class="page" data-title="Accounts" hidden>
+        <div class="field-row-stacked">
+          <label for="account-select">Selected Account</label>
+          <select id="account-select"></select>
+        </div>
+        <div class="field-row-stacked">
+          <label for="account-username">Username</label>
+          <input type="text" id="account-username">
+        </div>
+        <div class="field-row-stacked">
+          <label for="account-password">Password</label>
+          <input type="password" id="account-password">
+        </div>
+        <div style="display: flex; gap: 10px">
+          <button id="add-account">Add</button>
+          <button id="remove-account" class="default">Remove</button>
+          <button id="fill-login" class="default">Fill Login</button>
+        </div>
+        <p>*to update a password, enter the same username and new password and click add.</p>
+      </div>
       <div id="settings" class="page" data-title="Settings" hidden>
+        <p style="text-align: center">Click the save button at the bottom for any changes to take effect!</p>
         <div class="field-row-stacked">
           <label for="install-dir">
             Wizard101 Install Directory
@@ -73,7 +94,7 @@
               <img src="assets/help.png" width="10" height="10">
               <div class="tooltip-popup">
                 <div class="tooltip-header">Quick Launch</div>
-                <div class="tooltip-body">Skips patching the game and launches immediately. *disable after a game update</div>
+                <div class="tooltip-body">Skips patching the game and launches immediately. *will not work after a game update</div>
               </div>
             </div>
           </label>
@@ -86,7 +107,20 @@
               <img src="assets/help.png" width="10" height="10">
               <div class="tooltip-popup top left">
                 <div class="tooltip-header">Use Original Authentication</div>
-                <div class="tooltip-body">Uses the graphical client quick launcher login interface to authenticate with the server instead of using the custom logic shipped with this launcher. *for the paranoid</div>
+                <div class="tooltip-body">Uses the game's graphical login instead of the authentication shipped with this launcher. Credentials are typed into the login UI automatically. *for the paranoid</div>
+              </div>
+            </div>
+          </label>
+        </div>
+        <div class="field-row">
+          <input type="checkbox" id="enable-accounts">
+          <label for="enable-accounts">
+            Enable Account Selection
+            <div class="tooltip-wrap">
+              <img src="assets/help.png" width="10" height="10">
+              <div class="tooltip-popup left">
+                <div class="tooltip-header">Enable Account Selection</div>
+                <div class="tooltip-body">Adds an accounts page where you can save multiple logins and switch between them.</div>
               </div>
             </div>
           </label>
@@ -96,7 +130,7 @@
             Start Page
             <div class="tooltip-wrap">
               <img src="assets/help.png" width="10" height="10">
-              <div class="tooltip-popup">
+              <div class="tooltip-popup top">
                 <div class="tooltip-header">Start Page</div>
                 <div class="tooltip-body">Changes what page the launcher opens to.</div>
               </div>
@@ -104,6 +138,7 @@
           </label>
           <select id="starting-page">
             <option selected>Ravenwood News</option>
+            <option id="starting-page-accounts" hidden>Accounts</option>
             <option>Settings</option>
           </select>
         </div>
@@ -155,11 +190,31 @@
     </div>
   </footer>
 <script>
-  const pages = Array.from(document.querySelectorAll('.page'));
+  let enableAccounts = false;
+  let pages = [];
   const pageControls = document.querySelector('.page-controls');
   let currentPageIndex = 0;
 
+  function rebuildPages() {
+    const currentTitle = pages[currentPageIndex]?.dataset.title;
+    const allPages = Array.from(document.querySelectorAll('.page'));
+    pages = enableAccounts
+      ? allPages
+      : allPages.filter((page) => page.id !== 'accounts');
+    if (currentTitle) {
+      const idx = pages.findIndex((page) => page.dataset.title === currentTitle);
+      if (idx !== -1) {
+        currentPageIndex = idx;
+      } else {
+        const newsIdx = pages.findIndex((page) => page.id === 'news');
+        currentPageIndex = newsIdx === -1 ? 0 : newsIdx;
+      }
+    }
+    __showPageAtIndex(currentPageIndex);
+  }
+
   function __showPageAtIndex(index) {
+    if (pages.length === 0) return;
     currentPageIndex = ((index % pages.length) + pages.length) % pages.length;
     pages.forEach((page, i) => {
       const selected = i === currentPageIndex;
@@ -182,8 +237,7 @@
   pageControls.firstElementChild.addEventListener('click', () => __stepPage(-1));
   pageControls.lastElementChild.addEventListener('click', () => __stepPage(1));
 
-  const defaultIndex = pages.findIndex((page) => page.id === 'news');
-  __showPageAtIndex(defaultIndex === -1 ? 0 : defaultIndex);
+  rebuildPages();
 
   function __renderNews(items) {
     const base      = 'https://www.wizard101.com';
@@ -219,7 +273,7 @@
     }
   }
 
-  // -- C++ -> JS (called via ExecuteScript) -------------------------------------
+  // ── C++ → JS (called via ExecuteScript) ──────────────────────────────────
 
   function __showPatchProgress() {
     document.getElementById('login-fields').style.display = 'none';
@@ -249,7 +303,7 @@
     btn.textContent = 'Login';
   }
 
-  // -- JS -> C++ (postMessage bridge) -------------------------------------
+  // ── JS → C++ (postMessage bridge) ────────────────────────────────────────
 
   document.getElementById('login').addEventListener('click', () => {
     const username = document.getElementById('username').value.trim();
@@ -273,14 +327,49 @@
     document.getElementById('password').value = password;
   }
 
+  function __fillLoginFields(username, password) {
+    document.getElementById('username').value = username || '';
+    document.getElementById('password').value = password || '';
+  }
+
+  function __initAccounts(selectedUsername, usernames) {
+    const select = document.getElementById('account-select');
+    select.replaceChildren();
+    for (const name of usernames) {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      select.appendChild(opt);
+    }
+    if (select.options.length === 0) {
+      select.selectedIndex = -1;
+      return;
+    }
+    if (selectedUsername) {
+      for (let i = 0; i < select.options.length; i++) {
+        if (select.options[i].value === selectedUsername) {
+          select.selectedIndex = i;
+          return;
+        }
+      }
+    }
+    // Single option or no saved selection: select the first entry.
+    select.selectedIndex = 0;
+  }
+
   // Called once on load by the C++ backend to populate settings fields and
   // navigate to the user's chosen starting page.
-  function __initSettings(installDir, fixedWindowSize, quickLaunch, useOrigAuth, rememberPassword, startingPage) {
+  function __initSettings(installDir, fixedWindowSize, quickLaunch, useOrigAuth, rememberPassword, enableAccountsSetting, startingPage) {
     document.getElementById('install-dir').value = installDir;
     document.getElementById('fixed-window-size').checked = fixedWindowSize;
     document.getElementById('quick-launch').checked = quickLaunch;
     document.getElementById('use-orig-auth').checked = useOrigAuth;
     document.getElementById('remember-password').checked = rememberPassword;
+    document.getElementById('enable-accounts').checked = enableAccountsSetting;
+    enableAccounts = enableAccountsSetting;
+
+    const accountsOption = document.getElementById('starting-page-accounts');
+    accountsOption.hidden = !enableAccounts;
 
     const select = document.getElementById('starting-page');
     for (let i = 0; i < select.options.length; i++) {
@@ -290,7 +379,10 @@
       }
     }
 
-    if (startingPage) __renderPage(startingPage);
+    rebuildPages();
+
+    if (startingPage && (startingPage !== 'Accounts' || enableAccounts))
+      __renderPage(startingPage);
   }
 
   document.getElementById('save-settings').addEventListener('click', () => {
@@ -299,14 +391,54 @@
     const quickLaunch      = document.getElementById('quick-launch').checked;
     const useOrigAuth      = document.getElementById('use-orig-auth').checked;
     const rememberPassword = document.getElementById('remember-password').checked;
-    const startingPage     = document.getElementById('starting-page').value;
+    const enableAccountsSetting = document.getElementById('enable-accounts').checked;
+    let startingPage     = document.getElementById('starting-page').value;
+    enableAccounts = enableAccountsSetting;
+    document.getElementById('starting-page-accounts').hidden = !enableAccounts;
+    if (!enableAccountsSetting && startingPage === 'Accounts') {
+      document.getElementById('starting-page').selectedIndex = 0;
+      startingPage = document.getElementById('starting-page').value;
+    }
+    rebuildPages();
     window.chrome.webview.postMessage(
       JSON.stringify({ action: 'save_settings', install_dir: installDir,
                        fixed_window_size: fixedWindowSize,
                        quick_launch: quickLaunch,
                        use_orig_auth: useOrigAuth,
                        remember_password: rememberPassword,
+                       enable_accounts: enableAccountsSetting,
                        starting_page: startingPage })
+    );
+  });
+
+  function postSelectAccount() {
+    const username = document.getElementById('account-select').value;
+    if (!username) return;
+    window.chrome.webview.postMessage(
+      JSON.stringify({ action: 'select_account', username })
+    );
+  }
+
+  document.getElementById('account-select').addEventListener('change', postSelectAccount);
+
+  document.getElementById('fill-login').addEventListener('click', postSelectAccount);
+
+  document.getElementById('add-account').addEventListener('click', () => {
+    const username = document.getElementById('account-username').value.trim();
+    const password = document.getElementById('account-password').value;
+    if (!username || !password) return;
+    window.chrome.webview.postMessage(
+      JSON.stringify({ action: 'add_account', username, password })
+    );
+    document.getElementById('account-username').value = '';
+    document.getElementById('account-password').value = '';
+  });
+
+  document.getElementById('remove-account').addEventListener('click', () => {
+    const username = document.getElementById('account-select').value;
+    if (!username) return;
+    window.chrome.webview.postMessage(
+      JSON.stringify({ action: 'remove_account', username })
     );
   });
 

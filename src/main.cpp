@@ -20,6 +20,8 @@ static const int      WINDOW_HEIGHT = 600;
 #include "login_client.h"
 #include "patch_client.h"
 #include "config.h"
+#include "accounts.h"
+#include "json.h"
 #include "crypto.h"
 #include "logger.h"
 #include "resource_ids.h"
@@ -100,46 +102,58 @@ static std::string wstring_to_narrow(const std::wstring& ws)
     return out;
 }
 
-// ---------------------------------------------------------------------------
-// Extracts and JSON-unescapes a string value by key from a flat JSON object.
-// Handles \\ \/ \" \n \r \t : sufficient for all fields including file paths.
-// ---------------------------------------------------------------------------
-static std::wstring json_get_wstring(const std::wstring& json, const std::wstring& key)
+static std::wstring js_str_escape_w(const std::string& s)
 {
-    std::wstring needle = L"\"" + key + L"\":\"";
-    auto pos = json.find(needle);
-    if (pos == std::wstring::npos) return {};
-    pos += needle.size();
-
     std::wstring out;
-    for (size_t i = pos; i < json.size(); ++i) {
-        if (json[i] == L'\\' && i + 1 < json.size()) {
-            switch (json[++i]) {
-                case L'\\': out += L'\\'; break;
-                case L'/':  out += L'/';  break;
-                case L'"':  out += L'"';  break;
-                case L'n':  out += L'\n'; break;
-                case L'r':  out += L'\r'; break;
-                case L't':  out += L'\t'; break;
-                default:    out += json[i]; break;
-            }
-        } else if (json[i] == L'"') {
-            break;
-        } else {
-            out += json[i];
-        }
+    for (unsigned char c : s) {
+        if (c == '\\') out += L"\\\\";
+        else if (c == '\'') out += L"\\'";
+        else out += static_cast<wchar_t>(c);
     }
     return out;
 }
 
-static bool json_get_wbool(const std::wstring& json, const std::wstring& key)
+static void execute_fill_login_fields(ICoreWebView2* sender,
+                                      const std::string& username,
+                                      const std::string& password)
 {
-    std::wstring needle = L"\"" + key + L"\":";
-    auto pos = json.find(needle);
-    if (pos == std::wstring::npos) return false;
-    pos += needle.size();
-    while (pos < json.size() && (json[pos] == L' ' || json[pos] == L'\t')) ++pos;
-    return pos + 4 <= json.size() && json.substr(pos, 4) == L"true";
+    if (!sender) return;
+    std::wstring script = L"__fillLoginFields('"
+        + js_str_escape_w(username) + L"','"
+        + js_str_escape_w(password) + L"');";
+    sender->ExecuteScript(script.c_str(), nullptr);
+}
+
+static std::wstring make_accounts_init_script()
+{
+    auto accounts = accounts_load();
+    std::wstring script = L"__initAccounts('";
+    script += js_str_escape_w(g_config.selected_account);
+    script += L"',[";
+    for (size_t i = 0; i < accounts.size(); ++i) {
+        if (i > 0) script += L',';
+        script += L"'";
+        script += js_str_escape_w(accounts[i].username);
+        script += L"'";
+    }
+    script += L"]);";
+    return script;
+}
+
+static bool should_autofill_account_footer()
+{
+    return g_config.remembered_username.empty()
+        && !g_config.selected_account.empty();
+}
+
+static void refresh_accounts_ui(ICoreWebView2* sender, bool fill_footer)
+{
+    if (!sender) return;
+    sender->ExecuteScript(make_accounts_init_script().c_str(), nullptr);
+    if (fill_footer && !g_config.selected_account.empty()) {
+        std::string pw = accounts_get_password(g_config.selected_account);
+        execute_fill_login_fields(sender, g_config.selected_account, pw);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -386,28 +400,31 @@ static void create_main_controller(ICoreWebView2Environment* env, HWND hwnd)
                                 }
                             }
 
+                            // Autofill from selected account.
+                            if (g_config.enable_accounts && should_autofill_account_footer()) {
+                                std::string pw = accounts_get_password(g_config.selected_account);
+                                execute_fill_login_fields(sender, g_config.selected_account, pw);
+                            }
+
                             // Populate the settings page with stored values.
-                            // Escape backslashes in install_dir for a JS string literal.
-                            auto js_str_escape = [](const std::string& s) {
-                                std::wstring out;
-                                for (unsigned char c : s) {
-                                    if (c == '\\') out += L"\\\\";
-                                    else if (c == '\'') out += L"\\'";
-                                    else out += static_cast<wchar_t>(c);
-                                }
-                                return out;
-                            };
-                            std::wstring w_starting_page(g_config.starting_page.begin(),
-                                                         g_config.starting_page.end());
+                            std::string starting_page = g_config.starting_page;
+                            if (!g_config.enable_accounts && starting_page == "Accounts")
+                                starting_page.clear();
+                            std::wstring w_starting_page(starting_page.begin(),
+                                                         starting_page.end());
                             std::wstring settings_script =
                                 L"__initSettings('"
-                                + js_str_escape(g_config.install_dir) + L"',"
+                                + js_str_escape_w(g_config.install_dir) + L"',"
                                 + (g_config.fixed_window_size  ? L"true" : L"false") + L","
                                 + (g_config.quick_launch       ? L"true" : L"false") + L","
                                 + (g_config.use_orig_auth      ? L"true" : L"false") + L","
                                 + (g_config.remember_password  ? L"true" : L"false") + L","
+                                + (g_config.enable_accounts    ? L"true" : L"false") + L","
                                 + L"'" + w_starting_page + L"');";
                             sender->ExecuteScript(settings_script.c_str(), nullptr);
+
+                            if (g_config.enable_accounts)
+                                sender->ExecuteScript(make_accounts_init_script().c_str(), nullptr);
 
                             // If the WinHTTP news fetch already completed, render now;
                             // otherwise WM_NEWS_READY will call news_make_script() later.
@@ -456,17 +473,69 @@ static void create_main_controller(ICoreWebView2Environment* env, HWND hwnd)
                                 std::thread([u, p]() { run_login_and_patch(u, p); }).detach();
                             }
                             else if (action == L"save_settings") {
+                                bool was_accounts_enabled = g_config.enable_accounts;
                                 g_config.install_dir        = wstring_to_narrow(json_get_wstring(msg, L"install_dir"));
                                 g_config.fixed_window_size  = json_get_wbool(msg, L"fixed_window_size");
                                 g_config.quick_launch       = json_get_wbool(msg, L"quick_launch");
                                 g_config.use_orig_auth      = json_get_wbool(msg, L"use_orig_auth");
                                 g_config.remember_password  = json_get_wbool(msg, L"remember_password");
+                                g_config.enable_accounts    = json_get_wbool(msg, L"enable_accounts");
                                 g_config.starting_page      = wstring_to_narrow(json_get_wstring(msg, L"starting_page"));
+                                if (!g_config.enable_accounts && g_config.starting_page == "Accounts")
+                                    g_config.starting_page.clear();
                                 // Clear the stored blob when the feature is turned off.
                                 if (!g_config.remember_password)
                                     g_config.remembered_password.clear();
                                 config_save(g_config);
+                                if (!was_accounts_enabled && g_config.enable_accounts)
+                                    refresh_accounts_ui(g_webview.Get(), should_autofill_account_footer());
                                 LOG_STAT("CORE_CONFIG", "Settings saved.");
+                            }
+                            else if (action == L"add_account") {
+                                std::string u = wstring_to_narrow(json_get_wstring(msg, L"username"));
+                                std::string p = wstring_to_narrow(json_get_wstring(msg, L"password"));
+                                if (u.empty() || p.empty()) return S_OK;
+                                AccountSaveResult result = accounts_add_or_update(u, p);
+                                if (result == AccountSaveResult::Failed) return S_OK;
+                                if (result == AccountSaveResult::Added)
+                                    LOG_STAT("CORE_ACCOUNTS", "account added: " + u);
+                                else
+                                    LOG_STAT("CORE_ACCOUNTS", "account updated: " + u);
+                                bool fill = g_config.selected_account.empty();
+                                if (fill)
+                                    g_config.selected_account = u;
+                                else if (g_config.selected_account == u)
+                                    fill = true;
+                                config_save(g_config);
+                                refresh_accounts_ui(g_webview.Get(), fill);
+                            }
+                            else if (action == L"remove_account") {
+                                std::string u = wstring_to_narrow(json_get_wstring(msg, L"username"));
+                                if (u.empty()) return S_OK;
+                                accounts_remove(u);
+                                LOG_STAT("CORE_ACCOUNTS", "account removed: " + u);
+                                bool fill = false;
+                                if (g_config.selected_account == u) {
+                                    auto remaining = accounts_load();
+                                    if (remaining.empty()) {
+                                        g_config.selected_account.clear();
+                                        execute_fill_login_fields(g_webview.Get(), "", "");
+                                    } else {
+                                        g_config.selected_account = remaining[0].username;
+                                        fill = true;
+                                    }
+                                    config_save(g_config);
+                                }
+                                refresh_accounts_ui(g_webview.Get(), fill);
+                            }
+                            else if (action == L"select_account") {
+                                std::string u = wstring_to_narrow(json_get_wstring(msg, L"username"));
+                                if (u.empty()) return S_OK;
+                                g_config.selected_account = u;
+                                config_save(g_config);
+                                LOG_STAT("CORE_ACCOUNTS", "account selected: " + u);
+                                std::string pw = accounts_get_password(u);
+                                execute_fill_login_fields(g_webview.Get(), u, pw);
                             }
                             else if (action == L"play") {
                                 if (g_config.use_orig_auth)
