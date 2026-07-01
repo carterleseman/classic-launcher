@@ -40,6 +40,10 @@ struct AppConfig {
     // credentials are typed into the in-game login screen via WM_CHAR.
     bool use_orig_auth = false;
 
+    // When true the launcher resets to the login state after a successful game
+    // launch instead of closing
+    bool keep_open = false;
+
     // Page to show on startup : matches a page's data-title attribute.
     // Empty means the default (Ravenwood News).
     std::string starting_page;
@@ -59,6 +63,9 @@ struct AppConfig {
     // DPAPI-encrypted, base64-encoded password blob. Empty when not set.
     // Written by config_save; populated only when remember_password is true.
     std::string remembered_password;
+
+    // Game launch resolution. Values: "off", "borderless", "fullscreen", or "WxH".
+    std::string game_resolution = "off";
 };
 
 // Returns the path to the config file: %APPDATA%\wizlauncher\config.json

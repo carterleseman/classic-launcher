@@ -113,17 +113,43 @@
           </label>
         </div>
         <div class="field-row">
+          <input type="checkbox" id="keep-open">
+          <label for="keep-open">
+            Keep Launcher Open
+            <div class="tooltip-wrap">
+              <img src="assets/help.png" width="10" height="10">
+              <div class="tooltip-popup top left">
+                <div class="tooltip-header">Keep Launcher Open</div>
+                <div class="tooltip-body">Keeps the launcher open after launching the game and resets it to the login state. *helpful when using multiple accounts</div>
+              </div>
+            </div>
+          </label>
+        </div>
+        <div class="field-row">
           <input type="checkbox" id="enable-accounts">
           <label for="enable-accounts">
             Enable Account Selection
             <div class="tooltip-wrap">
               <img src="assets/help.png" width="10" height="10">
-              <div class="tooltip-popup left">
+              <div class="tooltip-popup top left">
                 <div class="tooltip-header">Enable Account Selection</div>
                 <div class="tooltip-body">Adds an accounts page where you can save multiple logins and switch between them.</div>
               </div>
             </div>
           </label>
+        </div>
+        <div class="field-row-stacked">
+          <label for="game-resolution">
+            Resolution
+            <div class="tooltip-wrap">
+              <img src="assets/help.png" width="10" height="10">
+              <div class="tooltip-popup top">
+                <div class="tooltip-header">Resolution</div>
+                <div class="tooltip-body">Sets the resolution the game launches at.</div>
+              </div>
+            </div>
+          </label>
+          <select id="game-resolution"></select>
         </div>
         <div class="field-row-stacked">
           <label for="starting-page">
@@ -138,8 +164,8 @@
           </label>
           <select id="starting-page">
             <option selected>Ravenwood News</option>
-            <option id="starting-page-accounts" hidden>Accounts</option>
             <option>Settings</option>
+            <option id="starting-page-accounts" hidden>Accounts</option>
           </select>
         </div>
         <button id="save-settings">Save</button>
@@ -303,6 +329,21 @@
     btn.textContent = 'Login';
   }
 
+  function __resetToLogin() {
+    document.getElementById('play-fields').style.display  = 'none';
+    document.getElementById('login-fields').style.display = 'flex';
+    document.getElementById('file-progress').value  = 0;
+    document.getElementById('total-progress').value = 0;
+    document.getElementById('file-name').textContent = '';
+    const play = document.getElementById('play');
+    play.disabled = true;
+    play.setAttribute('disabled', '');
+    const login = document.getElementById('login');
+    login.disabled    = false;
+    login.textContent = 'Login';
+    document.getElementById('password').value = '';
+  }
+
   // ── JS → C++ (postMessage bridge) ────────────────────────────────────────
 
   document.getElementById('login').addEventListener('click', () => {
@@ -357,13 +398,43 @@
     select.selectedIndex = 0;
   }
 
+  function resolutionLabel(value) {
+    if (value === 'off')        return 'Off';
+    if (value === 'borderless') return 'Borderless Fullscreen';
+    if (value === 'fullscreen') return 'Fullscreen';
+    return value;
+  }
+
+  function populateResolutionSelect(options, selected) {
+    const select = document.getElementById('game-resolution');
+    select.replaceChildren();
+    for (const value of options) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = resolutionLabel(value);
+      select.appendChild(option);
+    }
+    for (let i = 0; i < select.options.length; i++) {
+      if (select.options[i].value === selected) {
+        select.selectedIndex = i;
+        return;
+      }
+    }
+    select.selectedIndex = 0;
+  }
+
+  function __initResolutionSettings(options, selected) {
+    populateResolutionSelect(options, selected);
+  }
+
   // Called once on load by the C++ backend to populate settings fields and
   // navigate to the user's chosen starting page.
-  function __initSettings(installDir, fixedWindowSize, quickLaunch, useOrigAuth, rememberPassword, enableAccountsSetting, startingPage) {
+  function __initSettings(installDir, fixedWindowSize, quickLaunch, useOrigAuth, keepOpen, rememberPassword, enableAccountsSetting, startingPage) {
     document.getElementById('install-dir').value = installDir;
     document.getElementById('fixed-window-size').checked = fixedWindowSize;
     document.getElementById('quick-launch').checked = quickLaunch;
     document.getElementById('use-orig-auth').checked = useOrigAuth;
+    document.getElementById('keep-open').checked = keepOpen;
     document.getElementById('remember-password').checked = rememberPassword;
     document.getElementById('enable-accounts').checked = enableAccountsSetting;
     enableAccounts = enableAccountsSetting;
@@ -390,9 +461,11 @@
     const fixedWindowSize  = document.getElementById('fixed-window-size').checked;
     const quickLaunch      = document.getElementById('quick-launch').checked;
     const useOrigAuth      = document.getElementById('use-orig-auth').checked;
+    const keepOpen         = document.getElementById('keep-open').checked;
     const rememberPassword = document.getElementById('remember-password').checked;
     const enableAccountsSetting = document.getElementById('enable-accounts').checked;
     let startingPage     = document.getElementById('starting-page').value;
+    const gameResolution = document.getElementById('game-resolution').value;
     enableAccounts = enableAccountsSetting;
     document.getElementById('starting-page-accounts').hidden = !enableAccounts;
     if (!enableAccountsSetting && startingPage === 'Accounts') {
@@ -405,9 +478,11 @@
                        fixed_window_size: fixedWindowSize,
                        quick_launch: quickLaunch,
                        use_orig_auth: useOrigAuth,
+                       keep_open: keepOpen,
                        remember_password: rememberPassword,
                        enable_accounts: enableAccountsSetting,
-                       starting_page: startingPage })
+                       starting_page: startingPage,
+                       game_resolution: gameResolution })
     );
   });
 

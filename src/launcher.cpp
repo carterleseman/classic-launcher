@@ -1,5 +1,6 @@
 #include "../include/launcher.h"
 #include "../include/logger.h"
+#include "../include/preferences.h"
 
 #include <vector>
 #include <string>
@@ -48,8 +49,11 @@ void launch_authenticated(const std::string& install_dir,
                           HWND               launcher_hwnd,
                           const std::string& ck2,
                           uint64_t           user_id,
-                          const std::string& username)
+                          const std::string& username,
+                          const std::string& game_resolution)
 {
+    apply_video_settings(install_dir, game_resolution);
+
     std::string exe     = install_dir + "\\Bin\\WizardGraphicalClient.exe";
     std::string bin_dir = install_dir + "\\Bin";
 
@@ -64,7 +68,7 @@ void launch_authenticated(const std::string& install_dir,
     LOG_STAT("LAUNCH", "cmd : " + cmd);
 
     if (spawn_game(exe, cmd, bin_dir, launcher_hwnd))
-        PostMessage(launcher_hwnd, WM_CLOSE, 0, 0);
+        PostMessage(launcher_hwnd, WM_LAUNCH_DONE, 0, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -118,7 +122,7 @@ static void automate_login(const std::string& username,
         return;
     }
 
-    LOG_STAT("LAUNCH", "game window found: waiting for login UI...");
+    LOG_STAT("LAUNCH", "game window found: waiting for login ui...");
 
     // Wait up to 60 s for the window title to become "Wizard101".
     for (int i = 0; i < 600; ++i) {
@@ -127,12 +131,12 @@ static void automate_login(const std::string& username,
     }
 
     if (get_window_title(game) != "Wizard101") {
-        LOG_ERR("LAUNCH", "timed out waiting for login UI");
+        LOG_ERR("LAUNCH", "timed out waiting for login ui");
         PostMessage(launcher, WM_CLOSE, 0, 0);
         return;
     }
 
-    LOG_STAT("LAUNCH", "login UI ready: sending credentials");
+    LOG_STAT("LAUNCH", "login ui ready");
 
     // Brief pause to let the UI settle before accepting input.
     std::this_thread::sleep_for(std::chrono::milliseconds(1500));
@@ -149,7 +153,7 @@ static void automate_login(const std::string& username,
 
     SendMessageA(game, WM_CHAR, VK_RETURN, 0);
 
-    PostMessage(launcher, WM_CLOSE, 0, 0);
+    PostMessage(launcher, WM_LAUNCH_DONE, 0, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -158,8 +162,11 @@ void launch_orig_auth(const std::string& install_dir,
                       DWORD              patch_elapsed_secs,
                       HWND               launcher_hwnd,
                       const std::string& username,
-                      const std::string& password)
+                      const std::string& password,
+                      const std::string& game_resolution)
 {
+    apply_video_settings(install_dir, game_resolution);
+
     std::string exe     = install_dir + "\\Bin\\WizardGraphicalClient.exe";
     std::string bin_dir = install_dir + "\\Bin";
 

@@ -152,8 +152,10 @@
     <ClCompile Include="src\logger.cpp" />
     <ClCompile Include="src\login_client.cpp" />
     <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\webview.cpp" />
     <ClCompile Include="src\news.cpp" />
     <ClCompile Include="src\patch_client.cpp" />
+    <ClCompile Include="src\preferences.cpp" />
     <ClCompile Include="src\utils\adler32.c" />
     <ClCompile Include="src\utils\crc32.c" />
     <ClCompile Include="src\utils\inffast.c" />
@@ -174,7 +176,9 @@
     <ClInclude Include="include\login_client.h" />
     <ClInclude Include="include\news.h" />
     <ClInclude Include="include\patch_client.h" />
+    <ClInclude Include="include\preferences.h" />
     <ClInclude Include="include\resource_ids.h" />
+    <ClInclude Include="include\webview.h" />
     <ClInclude Include="include\utils\crc32.h" />
     <ClInclude Include="include\utils\gzguts.h" />
     <ClInclude Include="include\utils\inffast.h" />

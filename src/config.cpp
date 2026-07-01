@@ -1,5 +1,6 @@
 #include "config.h"
 #include "json.h"
+#include "preferences.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -300,6 +301,9 @@ void config_save(const AppConfig& cfg)
     if (cfg.use_orig_auth)
         f << ",\n  \"use_orig_auth\": true";
 
+    if (cfg.keep_open)
+        f << ",\n  \"keep_open\": true";
+
     if (!cfg.starting_page.empty())
         f << ",\n  \"starting_page\": \"" << json_escape(cfg.starting_page) << "\"";
 
@@ -318,6 +322,9 @@ void config_save(const AppConfig& cfg)
     if (!cfg.remembered_password.empty())
         f << ",\n  \"remembered_password\": \"" << json_escape(cfg.remembered_password) << "\"";
 
+    if (cfg.game_resolution != "off")
+        f << ",\n  \"game_resolution\": \"" << json_escape(cfg.game_resolution) << "\"";
+
     f << "\n}\n";
     json_write_text_file(path, f.str());
 }
@@ -335,12 +342,14 @@ AppConfig config_load()
         cfg.fixed_window_size   = json_get_bool(json, "fixed_window_size", true);
         cfg.quick_launch        = json_get_bool(json, "quick_launch");
         cfg.use_orig_auth       = json_get_bool(json, "use_orig_auth");
+        cfg.keep_open           = json_get_bool(json, "keep_open");
         cfg.starting_page       = json_get(json, "starting_page");
         cfg.enable_accounts     = json_get_bool(json, "enable_accounts");
         cfg.selected_account    = json_get(json, "selected_account");
         cfg.remembered_username = json_get(json, "remembered_username");
         cfg.remember_password   = json_get_bool(json, "remember_password");
         cfg.remembered_password = json_get(json, "remembered_password");
+        cfg.game_resolution     = json_get(json, "game_resolution");
     }
 
     if (cfg.install_dir.empty()) {

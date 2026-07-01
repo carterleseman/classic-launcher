@@ -50,6 +50,9 @@
     <ClCompile Include="src\patch_client.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\preferences.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="src\utils\adler32.c">
       <Filter>Source Files\utils</Filter>
     </ClCompile>
@@ -95,6 +98,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="include\patch_client.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\preferences.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="include\resource_ids.h">

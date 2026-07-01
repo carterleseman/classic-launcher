@@ -1,7 +1,6 @@
 #include "dml.h"
 
 #include <cstring>
-#include <cassert>
 
 #pragma comment(lib, "ws2_32.lib")
 

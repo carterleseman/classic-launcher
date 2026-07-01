@@ -6,21 +6,6 @@
 
 #include <stdexcept>
 #include <cstring>
-#include <sstream>
-#include <iomanip>
-
-static void dbg_hexdump_crypto(const char* label, const uint8_t* data, size_t len)
-{
-    std::ostringstream oss;
-    oss << label << " (" << len << " bytes):";
-    for (size_t i = 0; i < len; i++) {
-        if (i % 16 == 0) oss << "\n  ";
-        oss << std::hex << std::uppercase << std::setw(2) << std::setfill('0')
-            << static_cast<unsigned>(data[i]) << ' ';
-    }
-    oss << '\n';
-    OutputDebugStringA(oss.str().c_str());
-}
 
 #pragma comment(lib, "bcrypt.lib")
 #pragma comment(lib, "crypt32.lib")
@@ -211,14 +196,9 @@ std::vector<uint8_t> crypto_gen_rec1(const std::string& username,
 
     std::vector<uint8_t> bytes(record.begin(), record.end());
 
-    OutputDebugStringA(("[crypto] Rec1 plaintext: \"" + record + "\"\n").c_str());
-
     uint8_t key[32], iv[16];
     crypto_derive_key(sid, time_secs, time_millis, key);
     crypto_derive_iv(iv);
-
-    dbg_hexdump_crypto("[crypto] Twofish key", key, 32);
-    dbg_hexdump_crypto("[crypto] Twofish IV ", iv,  16);
 
     twofish_ofb(key, iv, bytes.data(), bytes.size());
     return bytes;
