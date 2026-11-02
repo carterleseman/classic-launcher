@@ -7,6 +7,81 @@
 #include <thread>
 #include <chrono>
 #include <set>
+#include <tlhelp32.h>
+
+// ---------------------------------------------------------------------------
+// Steam tracking helpers
+// ---------------------------------------------------------------------------
+
+static std::string own_exe_dir()
+{
+    char buf[MAX_PATH]{};
+    GetModuleFileNameA(nullptr, buf, MAX_PATH);
+    std::string path(buf);
+    auto slash = path.find_last_of("/\\");
+    if (slash != std::string::npos)
+        path.resize(slash);
+    return path;
+}
+
+static bool is_process_running(const char* name)
+{
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snap == INVALID_HANDLE_VALUE)
+        return false;
+
+    wchar_t wname[MAX_PATH]{};
+    MultiByteToWideChar(CP_ACP, 0, name, -1, wname, MAX_PATH);
+
+    PROCESSENTRY32W pe{};
+    pe.dwSize = sizeof(pe);
+    bool found = false;
+
+    if (Process32FirstW(snap, &pe)) {
+        do {
+            if (_wcsicmp(pe.szExeFile, wname) == 0) {
+                found = true;
+                break;
+            }
+        } while (Process32NextW(snap, &pe));
+    }
+
+    CloseHandle(snap);
+    return found;
+}
+
+static void maybe_spawn_steam_utility()
+{
+    if (is_process_running("steam-utility.exe")) {
+        LOG_STAT("LAUNCH", "steam-utility.exe already running");
+        return;
+    }
+
+    std::string dir     = own_exe_dir();
+    std::string utility = dir + "\\steam-utility.exe";
+
+    std::string cmd = "\"" + utility + "\" idle 799960 \"" + dir + "\"";
+
+    std::vector<char> cmd_buf(cmd.begin(), cmd.end());
+    cmd_buf.push_back('\0');
+
+    STARTUPINFOA        si{};
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi{};
+
+    if (!CreateProcessA(utility.c_str(), cmd_buf.data(),
+                        nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
+                        nullptr, dir.c_str(), &si, &pi))
+    {
+        LOG_WARN("LAUNCH", "Failed to start steam-utility.exe (err="
+                           + std::to_string(GetLastError()) + ").");
+        return;
+    }
+
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    LOG_STAT("LAUNCH", "steam-utility.exe started");
+}
 
 // ---------------------------------------------------------------------------
 // Shared spawn helper
@@ -50,7 +125,8 @@ void launch_authenticated(const std::string& install_dir,
                           const std::string& ck2,
                           uint64_t           user_id,
                           const std::string& username,
-                          const std::string& game_resolution)
+                          const std::string& game_resolution,
+                          bool               steam_tracking)
 {
     apply_video_settings(install_dir, game_resolution);
 
@@ -68,6 +144,7 @@ void launch_authenticated(const std::string& install_dir,
     LOG_STAT("LAUNCH", "cmd : " + cmd);
 
     if (spawn_game(exe, cmd, bin_dir, launcher_hwnd))
+        if (steam_tracking) maybe_spawn_steam_utility();
         PostMessage(launcher_hwnd, WM_LAUNCH_DONE, 0, 0);
 }
 
@@ -163,7 +240,8 @@ void launch_orig_auth(const std::string& install_dir,
                       HWND               launcher_hwnd,
                       const std::string& username,
                       const std::string& password,
-                      const std::string& game_resolution)
+                      const std::string& game_resolution,
+                      bool               steam_tracking)
 {
     apply_video_settings(install_dir, game_resolution);
 
@@ -182,6 +260,8 @@ void launch_orig_auth(const std::string& install_dir,
 
     if (!spawn_game(exe, cmd, bin_dir, launcher_hwnd))
         return;
+
+    if (steam_tracking) maybe_spawn_steam_utility();
 
     // Hide the launcher so it stays alive during automation
     ShowWindow(launcher_hwnd, SW_HIDE);

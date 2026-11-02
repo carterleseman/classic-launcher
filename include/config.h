@@ -44,6 +44,10 @@ struct AppConfig {
     // launch instead of closing
     bool keep_open = false;
 
+    // When true, steam-utility.exe is launched alongside the game to register
+    // playtime under AppID 799960 in the Steam client.
+    bool steam_tracking = false;
+
     // Page to show on startup : matches a page's data-title attribute.
     // Empty means the default (Ravenwood News).
     std::string starting_page;
@@ -71,11 +75,9 @@ struct AppConfig {
 // Returns the path to the config file: %APPDATA%\wizlauncher\config.json
 std::string config_path();
 
-// Login protocol schema
-// Written during patching; absent on first launch.
-// Path: %APPDATA%\wizlauncher\LoginMessages.xml
-std::string login_messages_path();
-
 AppConfig config_load();
 
 void config_save(const AppConfig& cfg);
+
+// Log every setting (except the stored password blob) as CORE_CONFIG lines.
+void config_log(const AppConfig& cfg);

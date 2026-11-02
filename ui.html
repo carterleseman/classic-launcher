@@ -126,6 +126,19 @@
           </label>
         </div>
         <div class="field-row">
+          <input type="checkbox" id="steam-tracking">
+          <label for="steam-tracking">
+            Steam Playtime Tracking
+            <div class="tooltip-wrap">
+              <img src="assets/help.png" width="10" height="10">
+              <div class="tooltip-popup top left">
+                <div class="tooltip-header">Steam Tracking</div>
+                <div class="tooltip-body">Registers playtime with Steam when the game is running. *requires Wizard101 to be added to your library and Steam to be running</div>
+              </div>
+            </div>
+          </label>
+        </div>
+        <div class="field-row">
           <input type="checkbox" id="enable-accounts">
           <label for="enable-accounts">
             Enable Account Selection
@@ -181,7 +194,7 @@
         </a>
       </div>
     </section>
-    <a href="https://www.wizard101.com/game">
+    <a href="https://www.wizard101.com/game?context=login">
       <img src="assets/w101-logo.webp" width="312" height="180">
     </a>
     <aside><b>NEVER</b> share your password - you will lose your Wizard forever!</aside>
@@ -266,32 +279,65 @@
   rebuildPages();
 
   function __renderNews(items) {
-    const base      = 'https://www.wizard101.com';
-    const abs       = (url) => url && url.startsWith('/') ? base + url : url;
-    const fixLinks  = (html) => html.replace(/href="(\/[^"]*)"/g, (_, p) => `href="${abs(p)}"`);
+    const origin = 'https://www.play.wizard101.com';
+    const abs = (url) => {
+      if (!url) return origin + '/news';
+      if (url.startsWith('/')) return origin + url;
+      return url;
+    };
+
+    function newsTypeSrc(title) {
+      const rules = [
+        [/\bpets?\b/i, 'pet'],
+        [/\bmembership\b/i, 'member'],
+        [/\bcrowns?\b/i, 'crowns'],
+        [/\bmounts?\b/i, 'mount'],
+        [/\b(?:items|bundles?)\b/i, 'bundle']
+      ];
+      for (const [pattern, name] of rules) {
+        if (!pattern.test(title)) continue;
+        if (name === 'crowns' && /\bevents?\b/i.test(title)) return 'assets/news-types/other.png';
+        return 'assets/news-types/' + name + '.png';
+      }
+      return 'assets/news-types/other.png';
+    }
+
+    const cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - 1);
+    cutoff.setHours(0, 0, 0, 0);
 
     const news = document.getElementById('news');
+    news.replaceChildren();
 
     for (const item of items) {
+      const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(item.date || '');
+      if (!match) continue;
+      const posted = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+      if (posted < cutoff) continue;
+
+      const href = abs(item.href);
       const article = document.createElement('article');
+      if (item.date) article.dataset.date = item.date;
+      if (item.img_src) article.dataset.image = item.img_src;
 
       const figure = document.createElement('figure');
-      const img    = document.createElement('img');
-      img.src = item.img_src;
-      if (item.img_w) img.width  = item.img_w - 35;
-      if (item.img_h) img.height = item.img_h - 35;
-
-      if (item.img_href) {
-        const a = document.createElement('a');
-        a.href = item.img_href;
-        a.appendChild(img);
-        figure.appendChild(a);
-      } else {
-        figure.appendChild(img);
-      }
+      const img_link = document.createElement('a');
+      img_link.href = href;
+      img_link.target = '_blank';
+      const img = document.createElement('img');
+      img.src = newsTypeSrc(item.title);
+      img_link.appendChild(img);
+      figure.appendChild(img_link);
 
       const p = document.createElement('p');
-      p.innerHTML = fixLinks(item.body);
+      const title_link = document.createElement('a');
+      title_link.href = href;
+      title_link.target = '_blank';
+      const title = document.createElement('b');
+      title.textContent = item.title;
+      title_link.appendChild(title);
+      p.appendChild(title_link);
+      p.appendChild(document.createTextNode(' ' + (item.text)));
 
       article.appendChild(figure);
       article.appendChild(p);
@@ -429,12 +475,13 @@
 
   // Called once on load by the C++ backend to populate settings fields and
   // navigate to the user's chosen starting page.
-  function __initSettings(installDir, fixedWindowSize, quickLaunch, useOrigAuth, keepOpen, rememberPassword, enableAccountsSetting, startingPage) {
+  function __initSettings(installDir, fixedWindowSize, quickLaunch, useOrigAuth, keepOpen, steamTracking, rememberPassword, enableAccountsSetting, startingPage) {
     document.getElementById('install-dir').value = installDir;
     document.getElementById('fixed-window-size').checked = fixedWindowSize;
     document.getElementById('quick-launch').checked = quickLaunch;
     document.getElementById('use-orig-auth').checked = useOrigAuth;
     document.getElementById('keep-open').checked = keepOpen;
+    document.getElementById('steam-tracking').checked = steamTracking;
     document.getElementById('remember-password').checked = rememberPassword;
     document.getElementById('enable-accounts').checked = enableAccountsSetting;
     enableAccounts = enableAccountsSetting;
@@ -462,6 +509,7 @@
     const quickLaunch      = document.getElementById('quick-launch').checked;
     const useOrigAuth      = document.getElementById('use-orig-auth').checked;
     const keepOpen         = document.getElementById('keep-open').checked;
+    const steamTracking    = document.getElementById('steam-tracking').checked;
     const rememberPassword = document.getElementById('remember-password').checked;
     const enableAccountsSetting = document.getElementById('enable-accounts').checked;
     let startingPage     = document.getElementById('starting-page').value;
@@ -479,6 +527,7 @@
                        quick_launch: quickLaunch,
                        use_orig_auth: useOrigAuth,
                        keep_open: keepOpen,
+                       steam_tracking: steamTracking,
                        remember_password: rememberPassword,
                        enable_accounts: enableAccountsSetting,
                        starting_page: startingPage,

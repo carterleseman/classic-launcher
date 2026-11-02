@@ -42,11 +42,11 @@ static std::string base64_encode(const std::string& in)
 // ---------------------------------------------------------------------------
 static std::string fetch_news_html()
 {
-    // User-Agent must match a recent Chrome/Edge build : Akamai's WAF checks it
-    // against the Sec-CH-UA version token and blocks stale/non-browser agents.
+    // User-Agent should match the Sec-CH-UA version. The news host is
+    // www.play.wizard101.com; a direct navigation sends no Referer.
     HINTERNET session = WinHttpOpen(
         L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        L"(KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36 Edg/148.0.0.0",
+        L"(KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
         WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
         WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!session) {
@@ -54,7 +54,7 @@ static std::string fetch_news_html()
         return {};
     }
 
-    HINTERNET conn = WinHttpConnect(session, L"www.wizard101.com",
+    HINTERNET conn = WinHttpConnect(session, L"www.play.wizard101.com",
                                     INTERNET_DEFAULT_HTTPS_PORT, 0);
     if (!conn) {
         LOG_ERR("CORE_NEWS", "WinHttpConnect failed: " + std::to_string(GetLastError()));
@@ -62,7 +62,7 @@ static std::string fetch_news_html()
         return {};
     }
 
-    HINTERNET req = WinHttpOpenRequest(conn, L"GET", L"/game/news",
+    HINTERNET req = WinHttpOpenRequest(conn, L"GET", L"/news",
         nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
         WINHTTP_FLAG_SECURE);
     if (!req) {
@@ -78,22 +78,19 @@ static std::string fetch_news_html()
         WinHttpCloseHandle(session);
     };
 
-    // Akamai WAF requires Sec-Fetch-* headers to accept the request as a
-    // legitimate browser navigation. Without them it returns 403.
-    // Referer must be within wizard101.com for Sec-Fetch-Site: same-origin.
+    // Direct navigation to /news. Accept-Encoding is omitted so the body stays
+    // plain HTML; WinHTTP does not decompress brotli or zstd.
     static const wchar_t* HEADERS =
         L"Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7\r\n"
         L"Accept-Language: en-US,en;q=0.9\r\n"
-        L"Cache-Control: max-age=0\r\n"
         L"Cookie: Login1=1; userLocale=en\r\n"
         L"Priority: u=0, i\r\n"
-        L"Referer: https://www.wizard101.com/game/worlds\r\n"
-        L"Sec-CH-UA: \"Chromium\";v=\"148\", \"Microsoft Edge\";v=\"148\", \"Not/A)Brand\";v=\"99\"\r\n"
+        L"Sec-CH-UA: \"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"\r\n"
         L"Sec-CH-UA-Mobile: ?0\r\n"
         L"Sec-CH-UA-Platform: \"Windows\"\r\n"
         L"Sec-Fetch-Dest: document\r\n"
         L"Sec-Fetch-Mode: navigate\r\n"
-        L"Sec-Fetch-Site: same-origin\r\n"
+        L"Sec-Fetch-Site: none\r\n"
         L"Sec-Fetch-User: ?1\r\n"
         L"Upgrade-Insecure-Requests: 1\r\n";
 
@@ -118,10 +115,10 @@ static std::string fetch_news_html()
             WINHTTP_HEADER_NAME_BY_INDEX, &status, &len, WINHTTP_NO_HEADER_INDEX);
     }
 
-    LOG_STAT("CORE_NEWS", "HTTP status: " + std::to_string(status));
+    LOG_STAT("CORE_NEWS", "news http status: " + std::to_string(status));
 
     if (status != 200) {
-        LOG_WARN("CORE_NEWS", "Unexpected HTTP status : aborting fetch");
+        LOG_WARN("CORE_NEWS", "unexpected http status : aborting fetch");
         cleanup(); return {};
     }
 
@@ -131,8 +128,6 @@ static std::string fetch_news_html()
     while (WinHttpReadData(req, buf.data(), static_cast<DWORD>(buf.size()), &bytes_read)
            && bytes_read > 0)
         html.insert(html.end(), buf.begin(), buf.begin() + bytes_read);
-
-    LOG_STAT("CORE_NEWS", "Fetched " + std::to_string(html.size()) + " bytes");
 
     cleanup();
     return html;
@@ -144,8 +139,8 @@ static std::string fetch_news_html()
 //  The script:
 //    1. Decodes the base64 UTF-8 HTML passed as an argument.
 //    2. Parses it into a virtual document with DOMParser.
-//    3. Sets a <base> so relative URLs resolve against www.wizard101.com.
-//    4. Runs the same DOM selectors as the old hidden-WebView2 script.
+//    3. Sets a <base> so relative URLs resolve against www.play.wizard101.com.
+//    4. Collects every app-content-news-story-preview on the page.
 //    5. Calls __renderNews(results) directly : no round-trip to C++ needed.
 // ---------------------------------------------------------------------------
 static const wchar_t* SCRIPT_PREFIX = LR"js(
@@ -156,56 +151,27 @@ static const wchar_t* SCRIPT_PREFIX = LR"js(
 
   var doc = new DOMParser().parseFromString(html, 'text/html');
   var base = doc.createElement('base');
-  base.href = 'https://www.wizard101.com';
+  base.href = 'https://www.play.wizard101.com/news?tags=PC,NA';
   if (doc.head) doc.head.insertBefore(base, doc.head.firstChild);
 
   var results = [];
-  var tds = doc.querySelectorAll('td.maincontentpattern > table > tbody > tr > td');
-  var nonEmpty = 0;
+  var stories = doc.querySelectorAll('app-content-news-story-preview');
 
-  for (var i = 0; i < tds.length; i++) {
-    var td = tds[i];
-    if (!td.innerHTML.trim()) continue;
-    nonEmpty++;
-    if (nonEmpty <= 2) continue;
+  for (var i = 0; i < stories.length; i++) {
+    var story = stories[i];
+    var date = story.querySelector('.news-preview-date');
+    var img = story.querySelector('img.news-preview-image');
+    var title = story.querySelector('.news-preview-title');
+    var text = story.querySelector('.news-preview-text');
+    var link = story.querySelector('app-content-button a');
 
-    var item = { date: '', img_href: null, img_src: '', img_w: 0, img_h: 0, body: '' };
-    var contentbox = td.querySelector('div.contentbox');
-    if (!contentbox) { results.push(item); continue; }
-
-    var tables = contentbox.querySelectorAll(':scope > table');
-    if (tables.length < 2) { results.push(item); continue; }
-
-    var h2 = tables[0].querySelector('tbody > tr > td.contentbox_headermiddle > h2');
-    if (h2) item.date = h2.textContent.trim();
-
-    var bodyRows = tables[1].rows;
-    if (bodyRows.length > 1) {
-      var bodyCells = bodyRows[1].cells;
-      if (bodyCells.length > 1) {
-        var cell = bodyCells[1];
-        var anchor = cell.querySelector('div > a');
-        if (anchor) {
-          item.img_href = anchor.href || null;
-          var aImg = anchor.querySelector('img');
-          if (aImg) {
-            item.img_src = aImg.src || '';
-            item.img_w   = aImg.width  || 0;
-            item.img_h   = aImg.height || 0;
-          }
-        } else {
-          var dImg = cell.querySelector('div > img');
-          if (dImg) {
-            item.img_src = dImg.src || '';
-            item.img_w   = dImg.width  || 0;
-            item.img_h   = dImg.height || 0;
-          }
-        }
-        var p = cell.querySelector('p');
-        if (p) item.body = p.innerHTML || '';
-      }
-    }
-    results.push(item);
+    results.push({
+      date: date ? (date.getAttribute('datetime')) : '',
+      img_src: img ? img.src : '',
+      title: title ? title.textContent.trim() : '',
+      text: text ? text.textContent.trim() : '',
+      href: link ? link.href : ''
+    });
   }
 
   if (typeof __renderNews === 'function') __renderNews(results);
@@ -220,14 +186,13 @@ static const wchar_t* SCRIPT_SUFFIX = LR"js(')
 
 void news_start_fetch(HWND hwnd)
 {
-    LOG_STAT("CORE_NEWS", "Starting background fetch...");
+    LOG_STAT("CORE_NEWS", "starting news fetch...");
     std::thread([hwnd]() {
         std::string html = fetch_news_html();
         if (!html.empty()) {
             g_b64html = base64_encode(html);
-            LOG_STAT("CORE_NEWS", "Encoded to " + std::to_string(g_b64html.size()) + " base64 chars");
         } else {
-            LOG_WARN("CORE_NEWS", "Fetch returned empty : will render empty news");
+            LOG_WARN("CORE_NEWS", "fetch returned empty : will render empty news");
         }
         PostMessage(hwnd, WM_NEWS_READY, 0, 0);
     }).detach();
@@ -236,10 +201,9 @@ void news_start_fetch(HWND hwnd)
 std::wstring news_make_script()
 {
     if (g_b64html.empty()) {
-        LOG_WARN("CORE_NEWS", "news_make_script: no HTML, returning empty render");
+        LOG_WARN("CORE_NEWS", "news_make_script: no html, returning empty render");
         return L"if (typeof __renderNews === 'function') __renderNews([]);";
     }
-    LOG_STAT("CORE_NEWS", "news_make_script: building DOMParser extraction script");
     std::wstring b64(g_b64html.begin(), g_b64html.end());
     return std::wstring(SCRIPT_PREFIX) + b64 + std::wstring(SCRIPT_SUFFIX);
 }

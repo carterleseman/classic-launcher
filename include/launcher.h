@@ -17,7 +17,8 @@ void launch_authenticated(const std::string& install_dir,
                           const std::string& ck2,
                           uint64_t           user_id,
                           const std::string& username,
-                          const std::string& game_resolution);
+                          const std::string& game_resolution,
+                          bool               steam_tracking);
 
 // Native auth launch: -L -PT (no -U).
 // Hides the launcher window, then automates the in-game login UI via WM_CHAR
@@ -26,4 +27,5 @@ void launch_orig_auth(const std::string& install_dir,
                       HWND               launcher_hwnd,
                       const std::string& username,
                       const std::string& password,
-                      const std::string& game_resolution);
+                      const std::string& game_resolution,
+                      bool               steam_tracking);

@@ -1,6 +1,8 @@
 #include "config.h"
 #include "json.h"
 #include "preferences.h"
+#include "logger.h"
+#include "login_client.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -25,14 +27,6 @@ std::string config_path()
     if (!GetEnvironmentVariableA("APPDATA", appdata, sizeof(appdata)))
         return {};
     return std::string(appdata) + "\\wizlauncher\\config.json";
-}
-
-std::string login_messages_path()
-{
-    char appdata[MAX_PATH]{};
-    if (!GetEnvironmentVariableA("APPDATA", appdata, sizeof(appdata)))
-        return {};
-    return std::string(appdata) + "\\wizlauncher\\LoginMessages.xml";
 }
 
 // ---------------------------------------------------------------------------
@@ -304,6 +298,9 @@ void config_save(const AppConfig& cfg)
     if (cfg.keep_open)
         f << ",\n  \"keep_open\": true";
 
+    if (cfg.steam_tracking)
+        f << ",\n  \"steam_tracking\": true";
+
     if (!cfg.starting_page.empty())
         f << ",\n  \"starting_page\": \"" << json_escape(cfg.starting_page) << "\"";
 
@@ -343,6 +340,7 @@ AppConfig config_load()
         cfg.quick_launch        = json_get_bool(json, "quick_launch");
         cfg.use_orig_auth       = json_get_bool(json, "use_orig_auth");
         cfg.keep_open           = json_get_bool(json, "keep_open");
+        cfg.steam_tracking      = json_get_bool(json, "steam_tracking");
         cfg.starting_page       = json_get(json, "starting_page");
         cfg.enable_accounts     = json_get_bool(json, "enable_accounts");
         cfg.selected_account    = json_get(json, "selected_account");
@@ -350,6 +348,14 @@ AppConfig config_load()
         cfg.remember_password   = json_get_bool(json, "remember_password");
         cfg.remembered_password = json_get(json, "remembered_password");
         cfg.game_resolution     = json_get(json, "game_resolution");
+    }
+
+    if (cfg.game_resolution.empty())
+        cfg.game_resolution = "off";
+
+    if (!is_valid_resolution_selection(cfg.game_resolution)) {
+        cfg.game_resolution = "off";
+        dirty = true;
     }
 
     if (cfg.install_dir.empty()) {
@@ -370,4 +376,32 @@ AppConfig config_load()
         config_save(cfg);
 
     return cfg;
+}
+
+void config_log(const AppConfig& cfg)
+{
+    auto yn = [](bool v) { return v ? "true" : "false"; };
+
+    LOG_STAT("CORE_CONFIG", "install_dir         : " + cfg.install_dir);
+    LOG_STAT("CORE_CONFIG", "uuid                : " + cfg.uuid);
+    LOG_STAT("CORE_CONFIG", "hwid                : " + cfg.hwid);
+
+    uint64_t mid = get_machine_id_from_mac();
+    char mid_hex[17];
+    snprintf(mid_hex, sizeof(mid_hex), "%016llX",
+             static_cast<unsigned long long>(mid));
+    LOG_STAT("CORE_CONFIG", "machine_id          : " + std::string(mid_hex));
+    LOG_STAT("CORE_CONFIG", "PatchClientID       : " + cfg.uuid + ":{" + cfg.hwid + "}");
+
+    LOG_STAT("CORE_CONFIG", "fixed_window_size   : " + std::string(yn(cfg.fixed_window_size)));
+    LOG_STAT("CORE_CONFIG", "quick_launch        : " + std::string(yn(cfg.quick_launch)));
+    LOG_STAT("CORE_CONFIG", "use_orig_auth       : " + std::string(yn(cfg.use_orig_auth)));
+    LOG_STAT("CORE_CONFIG", "keep_open           : " + std::string(yn(cfg.keep_open)));
+    LOG_STAT("CORE_CONFIG", "steam_tracking      : " + std::string(yn(cfg.steam_tracking)));
+    LOG_STAT("CORE_CONFIG", "starting_page       : " + cfg.starting_page);
+    LOG_STAT("CORE_CONFIG", "enable_accounts     : " + std::string(yn(cfg.enable_accounts)));
+    LOG_STAT("CORE_CONFIG", "selected_account    : " + cfg.selected_account);
+    LOG_STAT("CORE_CONFIG", "remembered_username : " + cfg.remembered_username);
+    LOG_STAT("CORE_CONFIG", "remember_password   : " + std::string(yn(cfg.remember_password)));
+    LOG_STAT("CORE_CONFIG", "game_resolution     : " + cfg.game_resolution);
 }

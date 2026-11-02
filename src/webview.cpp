@@ -218,7 +218,7 @@ void extract_ui_resources()
     {
         std::string narrow;
         for (wchar_t wc : g_ui_base) narrow += static_cast<char>(wc);
-        LOG_STAT("CORE_INIT", "UI resources extracted to " + narrow);
+        LOG_STAT("CORE_INIT", "ui resources extracted to " + narrow);
     }
 }
 
@@ -308,6 +308,7 @@ static void create_main_controller(ICoreWebView2Environment* env, HWND hwnd)
                                 + (g_config.quick_launch       ? L"true" : L"false") + L","
                                 + (g_config.use_orig_auth      ? L"true" : L"false") + L","
                                 + (g_config.keep_open          ? L"true" : L"false") + L","
+                                + (g_config.steam_tracking     ? L"true" : L"false") + L","
                                 + (g_config.remember_password  ? L"true" : L"false") + L","
                                 + (g_config.enable_accounts    ? L"true" : L"false") + L","
                                 + L"'" + w_starting_page + L"');";
@@ -318,9 +319,7 @@ static void create_main_controller(ICoreWebView2Environment* env, HWND hwnd)
                                 sender->ExecuteScript(make_accounts_init_script().c_str(), nullptr);
 
                             g_nav_complete = true;
-                            LOG_STAT("CORE_NEWS", "NavigationCompleted : ui ready");
                             if (g_news_ready) {
-                                LOG_STAT("CORE_NEWS", "news already fetched : running extraction script");
                                 sender->ExecuteScript(news_make_script().c_str(), nullptr);
                             } else {
                                 LOG_STAT("CORE_NEWS", "waiting for WM_NEWS_READY");
@@ -365,6 +364,7 @@ static void create_main_controller(ICoreWebView2Environment* env, HWND hwnd)
                                 g_config.quick_launch       = json_get_wbool(msg, L"quick_launch");
                                 g_config.use_orig_auth      = json_get_wbool(msg, L"use_orig_auth");
                                 g_config.keep_open          = json_get_wbool(msg, L"keep_open");
+                                g_config.steam_tracking     = json_get_wbool(msg, L"steam_tracking");
                                 g_config.remember_password  = json_get_wbool(msg, L"remember_password");
                                 g_config.enable_accounts    = json_get_wbool(msg, L"enable_accounts");
                                 g_config.starting_page      = wstring_to_narrow(json_get_wstring(msg, L"starting_page"));
@@ -429,13 +429,15 @@ static void create_main_controller(ICoreWebView2Environment* env, HWND hwnd)
                                 execute_fill_login_fields(g_webview.Get(), u, pw);
                             }
                             else if (action == L"play") {
+                                config_log(g_config);
                                 if (g_config.use_orig_auth)
                                     launch_orig_auth(g_config.install_dir,
                                                      g_patch_elapsed_secs,
                                                      g_hwnd,
                                                      g_pending_username,
                                                      g_pending_password,
-                                                     g_config.game_resolution);
+                                                     g_config.game_resolution,
+                                                     g_config.steam_tracking);
                                 else
                                     launch_authenticated(g_config.install_dir,
                                                          g_patch_elapsed_secs,
@@ -443,7 +445,8 @@ static void create_main_controller(ICoreWebView2Environment* env, HWND hwnd)
                                                          g_login_result.ck2,
                                                          g_login_result.user_id,
                                                          g_login_result.username,
-                                                         g_config.game_resolution);
+                                                         g_config.game_resolution,
+                                                         g_config.steam_tracking);
                             }
                             else if (action == L"drag") {
                                 ReleaseCapture();
@@ -502,6 +505,7 @@ static void create_main_controller(ICoreWebView2Environment* env, HWND hwnd)
 
                 resize_webview(hwnd);
                 g_webview->Navigate(uri.c_str());
+                //g_webview->OpenDevToolsWindow();
 
                 return S_OK;
             }
@@ -546,10 +550,6 @@ void webview_execute(const wchar_t* script)
 void webview_on_news_ready()
 {
     g_news_ready = true;
-    if (g_nav_complete && g_webview) {
-        LOG_STAT("CORE_NEWS", "ui already loaded : running extraction script");
+    if (g_nav_complete && g_webview)
         g_webview->ExecuteScript(news_make_script().c_str(), nullptr);
-    } else {
-        LOG_STAT("CORE_NEWS", "ui not yet loaded : will render in NavigationCompleted");
-    }
 }

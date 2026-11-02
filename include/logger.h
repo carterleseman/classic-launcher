@@ -38,5 +38,6 @@ namespace log_detail {
 #define _LOG_FILE log_detail::base_name(__FILE__)
 
 #define LOG_STAT(tag, msg) log_write("STAT", (tag), _LOG_FILE, __LINE__, (msg))
+#define LOG_DBGM(tag, msg) log_write("DBGM", (tag), _LOG_FILE, __LINE__, (msg))
 #define LOG_WARN(tag, msg) log_write("WARN", (tag), _LOG_FILE, __LINE__, (msg))
 #define LOG_ERR(tag,  msg) log_write("ERR ", (tag), _LOG_FILE, __LINE__, (msg))

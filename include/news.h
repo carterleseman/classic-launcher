@@ -11,7 +11,7 @@
 // ExecuteScript content that extracts and renders the news via DOMParser.
 #define WM_NEWS_READY (WM_APP + 5)
 
-// Starts a background thread that fetches https://www.wizard101.com/game/news
+// Starts a background thread that fetches https://www.play.wizard101.com/game/news
 // via WinHTTP (Cookie: Login1=1) and base64-encodes the response HTML.
 // Posts WM_NEWS_READY to hwnd when done (or on failure : news_make_script
 // returns a no-op script in that case).

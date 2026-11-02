@@ -83,13 +83,13 @@ std::vector<PatchFile> patch_get_file_list(const PatchInfo& info,
                                            const std::string& local_path);
 
 // ---------------------------------------------------------------------------
-//  JSON cache : stored at %APPDATA%\wizlauncher\patch_cache.json.
+//  local_path is the game install copy: <game_root>\PatchInfo\LatestFileList.bin.
 //
 //  Format: a flat JSON object mapping tar_name (string) to CRC (number).
 //  { "Data/GameData/WizardCity-WC_Hub.wad": 3285550172, ... }
 //
-//  The cache is the sole record of what wizlauncher has downloaded.
-//  It is never written to the game's own PatchInfo folder.
+//  This is wizlauncher's skip list. PatchInfo\CRC_*.dat is the game's
+//  format and is written after each download.
 // ---------------------------------------------------------------------------
 
 std::string patch_default_cache_path();
@@ -99,11 +99,15 @@ PatchCache patch_cache_load(const std::string& cache_path);
 void patch_cache_save(const std::string& cache_path, const PatchCache& cache);
 
 // ---------------------------------------------------------------------------
-//  Returns the subset of `all` whose cached CRC is missing or different from
-//  the server CRC : i.e. the files that actually need downloading.
+//  Returns the subset of `all` that still need a download.
+//  On-disk files win over a stale JSON cache.
+//  PatchInfo\CRC_*.dat is checked only when JSON disagrees, so a normal
+//  wizlauncher launch still does one JSON parse. Matching entries are
+//  written back into `cache` so the next run stays on the fast path.
 // ---------------------------------------------------------------------------
 std::vector<PatchFile> patch_filter_needed(const std::vector<PatchFile>& all,
-                                           const PatchCache& cache);
+                                           PatchCache& cache,
+                                           const std::string& game_root);
 
 // ---------------------------------------------------------------------------
 //  High-level update: downloads every file in `files`, updates the cache

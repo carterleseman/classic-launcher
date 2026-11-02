@@ -7,8 +7,6 @@ static const int      WINDOW_HEIGHT = 600;
 #include <windows.h>
 #include <string>
 #include <vector>
-#include <fstream>
-#include <sstream>
 #include <thread>
 
 #include "news.h"
@@ -75,7 +73,7 @@ static void run_patch()
     const std::string game_root  = g_config.install_dir;
     const std::string cache_path = patch_default_cache_path();
     const std::string cache_dir  = cache_path.substr(0, cache_path.find_last_of("/\\"));
-    const std::string manifest   = cache_dir + "\\LatestFileList.bin";
+    const std::string manifest   = game_root + "\\PatchInfo\\LatestFileList.bin";
 
     LOG_STAT("CORE_PATCH", "Querying patch server...");
     try {
@@ -88,15 +86,9 @@ static void run_patch()
         auto all_files = patch_get_file_list(info, manifest);
         LOG_STAT("CORE_PATCH", "Manifest: " + std::to_string(all_files.size()) + " files");
 
-        if (auto login_pf = patch_find_login_messages(all_files)) {
-            patch_update_login_messages(info, *login_pf, login_messages_path(),
-                                        cache_path);
-        } else {
-            LOG_WARN("CORE_PATCH", "LoginMessages.xml not found in manifest.");
-        }
-
         PatchCache cache  = patch_cache_load(cache_path);
-        auto       needed = patch_filter_needed(all_files, cache);
+        auto       needed = patch_filter_needed(all_files, cache, game_root);
+        patch_cache_save(cache_path, cache);
         LOG_STAT("CORE_PATCH", "Need update: " + std::to_string(needed.size()) + " files");
 
         if (needed.empty()) {
@@ -234,140 +226,6 @@ static int run_message_loop()
 }
 
 // ---------------------------------------------------------------------------
-// LoginMessages.xml validator
-//
-// Parses MSG_USER_AUTHEN_V3 out of %APPDATA%\wizlauncher\LoginMessages.xml and
-// checks that every wire field (name + type, in order) matches what we
-// hardcode in login_authenticate().  NOXFER metadata fields are skipped.
-//
-// If MSG_USER_AUTHEN_V4 is present, validation fails immediately : the server
-// may have moved to a new auth message we do not implement yet.
-//
-// On the first run the file does not exist yet (downloaded during first patch);
-// validation is skipped until the following launch.
-//
-// Returns an empty string on success or when the file is absent (first run).
-// Returns an error description on mismatch or parse failure.
-// ---------------------------------------------------------------------------
-
-struct DmlFieldDef { std::string name; std::string type; };
-
-static const DmlFieldDef k_authen_v3_expected[] = {
-    { "Rec1",             "STR"  },
-    { "Version",          "STR"  },
-    { "Revision",         "STR"  },
-    { "DataRevision",     "STR"  },
-    { "CRC",              "STR"  },
-    { "MachineID",        "GID"  },
-    { "Locale",           "STR"  },
-    { "PatchClientID",    "STR"  },
-    { "IsSteamPatcher",   "UINT" },
-    { "ConsoleType",      "UBYT" },
-    { "PlatformChatID",   "STR"  },
-    { "SteamID",          "STR"  },
-    { "SteamAuthTicket",  "STR"  },
-};
-
-static std::string xml_attr(const std::string& tag, const std::string& key)
-{
-    size_t pos = tag.find(key + "=\"");
-    char   q   = '"';
-    if (pos == std::string::npos) {
-        pos = tag.find(key + "='");
-        q   = '\'';
-    }
-    if (pos == std::string::npos) return {};
-    pos += key.size() + 2;
-    size_t end = tag.find(q, pos);
-    if (end == std::string::npos) return {};
-    return tag.substr(pos, end - pos);
-}
-
-static std::string validate_login_messages_xml()
-{
-    const std::string path = login_messages_path();
-    if (GetFileAttributesA(path.c_str()) == INVALID_FILE_ATTRIBUTES) return {};
-    LOG_STAT("CORE_VALIDATE", "Validating: " + path);
-
-    std::ifstream f(path);
-    if (!f) return "Could not open " + path;
-    std::ostringstream ss;
-    ss << f.rdbuf();
-    std::string xml = ss.str();
-
-    if (xml.find("<MSG_USER_AUTHEN_V4>") != std::string::npos) {
-        return "MSG_USER_AUTHEN_V4 found in " + path + ".\n\n"
-               "wizlauncher does not support this protocol version yet.";
-    }
-
-    const std::string open_tag  = "<MSG_USER_AUTHEN_V3>";
-    const std::string close_tag = "</MSG_USER_AUTHEN_V3>";
-    size_t block_start = xml.find(open_tag);
-    size_t block_end   = xml.find(close_tag);
-    if (block_start == std::string::npos || block_end == std::string::npos)
-        return "MSG_USER_AUTHEN_V3 block not found in " + path;
-
-    std::string block = xml.substr(block_start + open_tag.size(),
-                                   block_end - block_start - open_tag.size());
-
-    std::vector<DmlFieldDef> found;
-    size_t p = 0;
-    while (p < block.size()) {
-        size_t lt = block.find('<', p);
-        if (lt == std::string::npos) break;
-        size_t gt = block.find('>', lt);
-        if (gt == std::string::npos) break;
-
-        std::string tag = block.substr(lt + 1, gt - lt - 1);
-        p = gt + 1;
-
-        if (tag.empty() || tag[0] == '/' || tag == "RECORD") continue;
-        if (tag.find("NOXFER") != std::string::npos) continue;
-
-        size_t sp = tag.find_first_of(" \t\r\n/");
-        std::string elem_name = (sp != std::string::npos) ? tag.substr(0, sp) : tag;
-        std::string type_val  = xml_attr(tag, "TYPE");
-        if (elem_name.empty() || type_val.empty()) continue;
-
-        for (auto& c : type_val)
-            c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-
-        found.push_back({ elem_name, type_val });
-    }
-
-    const size_t exp_count = sizeof(k_authen_v3_expected) / sizeof(k_authen_v3_expected[0]);
-    if (found.size() != exp_count) {
-        char buf[256];
-        snprintf(buf, sizeof(buf),
-            "MSG_USER_AUTHEN_V3 field count mismatch:\n"
-            "  expected %zu field(s), file has %zu.\n\n"
-            "wizlauncher needs to be updated to match the new protocol.",
-            exp_count, found.size());
-        return buf;
-    }
-    for (size_t i = 0; i < exp_count; ++i) {
-        if (found[i].name != k_authen_v3_expected[i].name ||
-            found[i].type != k_authen_v3_expected[i].type)
-        {
-            char buf[512];
-            snprintf(buf, sizeof(buf),
-                "MSG_USER_AUTHEN_V3 field %zu mismatch:\n"
-                "  expected  %-20s  %s\n"
-                "  file has  %-20s  %s\n\n"
-                "wizlauncher needs to be updated to match the new protocol.",
-                i + 1,
-                k_authen_v3_expected[i].name.c_str(),
-                k_authen_v3_expected[i].type.c_str(),
-                found[i].name.c_str(),
-                found[i].type.c_str());
-            return buf;
-        }
-    }
-    LOG_STAT("CORE_VALIDATE", "MSG_USER_AUTHEN_V3 schema OK.");
-    return {};
-}
-
-// ---------------------------------------------------------------------------
 
 int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int nCmdShow)
 {
@@ -381,30 +239,6 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ PWSTR, _I
 
     HWND hwnd = create_window(hInstance, nCmdShow);
     if (!hwnd) return 1;
-
-    if (!g_config.use_orig_auth) {
-        std::string err = validate_login_messages_xml();
-        if (!err.empty()) {
-            LOG_ERR("CORE_VALIDATE", err);
-            MessageBoxA(hwnd, err.c_str(), "Protocol Mismatch : wizlauncher Outdated",
-                        MB_OK | MB_ICONERROR);
-            return 1;
-        }
-    }
-
-    LOG_STAT("CORE_CONFIG", "install_dir : " + g_config.install_dir);
-    LOG_STAT("CORE_CONFIG", "uuid        : " + g_config.uuid);
-    LOG_STAT("CORE_CONFIG", "hwid        : " + g_config.hwid);
-
-    {
-        uint64_t mid = get_machine_id_from_mac();
-        char mid_hex[17];
-        snprintf(mid_hex, sizeof(mid_hex), "%016llX",
-                 static_cast<unsigned long long>(mid));
-        std::string patch_client_id = g_config.uuid + ":{" + g_config.hwid + "}";
-        LOG_STAT("CORE_CONFIG", "machine_id  : " + std::string(mid_hex));
-        LOG_STAT("CORE_CONFIG", "PatchClientID: " + patch_client_id);
-    }
 
     init_webview(hwnd);
 
@@ -448,13 +282,15 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
 
     case WM_QUICK_LAUNCH:
+        config_log(g_config);
         if (g_config.use_orig_auth)
             launch_orig_auth(g_config.install_dir,
                              g_patch_elapsed_secs,
                              g_hwnd,
                              g_pending_username,
                              g_pending_password,
-                             g_config.game_resolution);
+                             g_config.game_resolution,
+                             g_config.steam_tracking);
         else
             launch_authenticated(g_config.install_dir,
                                  g_patch_elapsed_secs,
@@ -462,7 +298,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                                  g_login_result.ck2,
                                  g_login_result.user_id,
                                  g_login_result.username,
-                                 g_config.game_resolution);
+                                 g_config.game_resolution,
+                                 g_config.steam_tracking);
         return 0;
 
     case WM_LAUNCH_DONE:
