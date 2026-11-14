@@ -218,17 +218,23 @@ static void automate_login(const std::string& username,
     // Brief pause to let the UI settle before accepting input.
     std::this_thread::sleep_for(std::chrono::milliseconds(1500));
 
-    // Username field is focused by default.
-    for (unsigned char c : username)
-        SendMessageA(game, WM_CHAR, c, 0);
+    auto send_text = [game](const std::string& text) {
+        for (unsigned char c : text)
+            SendMessageA(game, WM_CHAR, c, 0);
+    };
+    auto send_key = [game](WPARAM vk) {
+        const UINT scan = MapVirtualKeyA(static_cast<UINT>(vk), MAPVK_VK_TO_VSC);
+        LPARAM lp = 1 | (static_cast<LPARAM>(scan) << 16);
+        SendMessageA(game, WM_KEYDOWN, vk, lp);
+        lp |= (static_cast<LPARAM>(1) << 30) | (static_cast<LPARAM>(1) << 31);
+        SendMessageA(game, WM_KEYUP, vk, lp);
+    };
 
-    // Tab to the password field.
-    SendMessageA(game, WM_CHAR, VK_TAB, 0);
-
-    for (unsigned char c : password)
-        SendMessageA(game, WM_CHAR, c, 0);
-
-    SendMessageA(game, WM_CHAR, VK_RETURN, 0);
+    send_text(username);
+    send_key(VK_TAB);
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    send_text(password);
+    send_key(VK_RETURN);
 
     PostMessage(launcher, WM_LAUNCH_DONE, 0, 0);
 }

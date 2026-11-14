@@ -21,7 +21,7 @@ void launch_authenticated(const std::string& install_dir,
                           bool               steam_tracking);
 
 // Native auth launch: -L -PT (no -U).
-// Hides the launcher window, then automates the in-game login UI via WM_CHAR
+// Hides the launcher window, then types the in-game login UI
 void launch_orig_auth(const std::string& install_dir,
                       DWORD              patch_elapsed_secs,
                       HWND               launcher_hwnd,
