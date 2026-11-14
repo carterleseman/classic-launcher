@@ -107,7 +107,9 @@ void patch_cache_save(const std::string& cache_path, const PatchCache& cache);
 // ---------------------------------------------------------------------------
 std::vector<PatchFile> patch_filter_needed(const std::vector<PatchFile>& all,
                                            PatchCache& cache,
-                                           const std::string& game_root);
+                                           const std::string& game_root,
+                                           bool& cache_changed,
+                                           PatchOverallProgressFn on_scan = nullptr);
 
 // ---------------------------------------------------------------------------
 //  High-level update: downloads every file in `files`, updates the cache

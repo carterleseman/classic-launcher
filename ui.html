@@ -43,7 +43,9 @@
           <button id="remove-account" class="default">Remove</button>
           <button id="fill-login" class="default">Fill Login</button>
         </div>
-        <p>*to update a password, enter the same username and new password and click add.</p>
+        <p style="margin-bottom: 3px">*to update a password, enter the same username and new password and click add.</p>
+        <img src="assets/schools-doodle.webp" width="100%" style="margin-bottom: 0">
+        <img src="assets/gobblerprof.webp" width="30%" style="position: absolute; right: 10%; top: 5%">
       </div>
       <div id="settings" class="page" data-title="Settings" hidden>
         <p style="text-align: center">Click the save button at the bottom for any changes to take effect!</p>
@@ -182,6 +184,19 @@
           </select>
         </div>
         <button id="save-settings">Save</button>
+        <img src="assets/followinstructions.webp" style="position: absolute; top: 420px; right: 15%">
+        <img src="assets/packgobbler.webp" width="25%" style="position: absolute; top: 10%; right: 5%">
+      </div>
+      <div id="notification" class="page" data-title="Account Notification" hidden>
+        <div id="notice-locked" hidden>
+          <h4>Your account is currently locked.</h4>
+          <p>Your account is currently locked. To unlock your account, please <a href="https://www.wizard101.com/game?context=login">click here</a>.</p>
+          <p>After successfully logging into the website, return to the launcher to login and play.</p>
+        </div>
+        <div id="notice-banned" hidden>
+          <p>Your Wizard101 account is currently banned due to concerning activity.</p>
+          <p>The account email address should have received an email containing additional information, as well as directions to contact customer support if you have any questions. When contacting support, please include your Wizard101 username.</p>
+        </div>
       </div>
       <div class="section-footer">
         <a href="https://www.wizard101.com/CustomerSupport/game">
@@ -230,6 +245,7 @@
   </footer>
 <script>
   let enableAccounts = false;
+  let showAccountNotification = false;
   let pages = [];
   const pageControls = document.querySelector('.page-controls');
   let currentPageIndex = 0;
@@ -237,9 +253,11 @@
   function rebuildPages() {
     const currentTitle = pages[currentPageIndex]?.dataset.title;
     const allPages = Array.from(document.querySelectorAll('.page'));
-    pages = enableAccounts
-      ? allPages
-      : allPages.filter((page) => page.id !== 'accounts');
+    pages = allPages.filter((page) => {
+      if (page.id === 'accounts') return enableAccounts;
+      if (page.id === 'notification') return showAccountNotification;
+      return true;
+    });
     if (currentTitle) {
       const idx = pages.findIndex((page) => page.dataset.title === currentTitle);
       if (idx !== -1) {
@@ -310,6 +328,9 @@
     news.replaceChildren();
 
     for (const item of items) {
+      const tagNames = new Set((item.tags || []).map((tag) => String(tag).trim().toUpperCase()).filter(Boolean));
+      if (tagNames.size === 2 && tagNames.has('EU') && tagNames.has('PC')) continue;
+
       const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(item.date || '');
       if (!match) continue;
       const posted = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
@@ -373,6 +394,14 @@
     const btn = document.getElementById('login');
     btn.disabled    = false;
     btn.textContent = 'Login';
+  }
+  
+  function __showAccountNotification(reason) {
+    document.getElementById('notice-locked').hidden = reason !== 'AuthQuarantined';
+    document.getElementById('notice-banned').hidden = reason !== 'AuthBanned';
+    showAccountNotification = true;
+    rebuildPages();
+    __renderPage('Account Notification');
   }
 
   function __resetToLogin() {

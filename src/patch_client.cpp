@@ -95,10 +95,12 @@ static bool ends_with_ci(const std::string& s, const char* ext)
 
 static uint64_t file_size_or_zero(const std::string& path)
 {
-    std::ifstream sz(path, std::ios::binary | std::ios::ate);
-    if (!sz) return 0;
-    const auto n = sz.tellg();
-    return n < 0 ? 0 : static_cast<uint64_t>(n);
+    WIN32_FILE_ATTRIBUTE_DATA info{};
+    if (!GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &info))
+        return 0;
+    if (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+        return 0;
+    return (static_cast<uint64_t>(info.nFileSizeHigh) << 32) | info.nFileSizeLow;
 }
 
 static bool write_at(const std::string& path, uint64_t off, const uint8_t* p, size_t n)
@@ -244,11 +246,16 @@ static std::string patchinfo_crc_path(const std::string& game_root,
 
 static bool read_patchinfo_file_crc(const std::string& path, uint32_t& out_crc)
 {
-    std::ifstream in(path, std::ios::binary);
-    if (!in) return false;
+    HANDLE h = CreateFileA(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE)
+        return false;
     uint32_t crc = 0;
-    in.read(reinterpret_cast<char*>(&crc), 4);
-    if (!in) return false;
+    DWORD n = 0;
+    const BOOL ok = ReadFile(h, &crc, sizeof(crc), &n, nullptr);
+    CloseHandle(h);
+    if (!ok || n != sizeof(crc))
+        return false;
     out_crc = crc;
     return true;
 }
@@ -1058,10 +1065,16 @@ static std::string join_game_path(const std::string& game_root, const std::strin
 
 std::vector<PatchFile> patch_filter_needed(const std::vector<PatchFile>& all,
                                            PatchCache& cache,
-                                           const std::string& game_root)
+                                           const std::string& game_root,
+                                           bool& cache_changed,
+                                           PatchOverallProgressFn on_scan)
 {
+    cache_changed = false;
     std::vector<PatchFile> needed;
-    for (const auto& pf : all) {
+    needed.reserve(all.size());
+    const size_t total = all.size();
+    for (size_t i = 0; i < total; ++i) {
+        const auto& pf = all[i];
         std::string key = effective_rel_path(pf);
         for (auto& c : key) if (c == '\\') c = '/';
 
@@ -1094,14 +1107,24 @@ std::vector<PatchFile> patch_filter_needed(const std::vector<PatchFile>& all,
             } else {
                 up_to_date = true;
                 cache[key] = pf.crc;
+                cache_changed = true;
             }
         }
 
-        if (up_to_date && !dest.empty() && ends_with_ci(key, ".wad") && !streamed)
+        // A leftover .utd on a complete type-3 WAD makes the client treat it
+        // as incomplete.  Once JSON matches, that cleanup already happened.
+        if (up_to_date && !json_match && !dest.empty()
+            && ends_with_ci(key, ".wad") && !streamed)
             DeleteFileA((dest + ".utd").c_str());
 
         if (!up_to_date)
             needed.push_back(pf);
+            
+        if (on_scan && ((i & 127) == 127 || i + 1 == total)) {
+            int pct = total ? static_cast<int>(((i + 1) * 100) / total) : 0;
+            if (pct > 99) pct = 99;
+            on_scan(pct);
+        }
     }
     return needed;
 }

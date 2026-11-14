@@ -164,13 +164,20 @@ static const wchar_t* SCRIPT_PREFIX = LR"js(
     var title = story.querySelector('.news-preview-title');
     var text = story.querySelector('.news-preview-text');
     var link = story.querySelector('app-content-button a');
+    var tagNodes = story.querySelectorAll('.news-preview-tag');
+    var tags = [];
+    for (var t = 0; t < tagNodes.length; t++) {
+      var tag = tagNodes[t].getAttribute('title') || tagNodes[t].textContent.trim();
+      if (tag) tags.push(tag);
+    }
 
     results.push({
       date: date ? (date.getAttribute('datetime')) : '',
       img_src: img ? img.src : '',
       title: title ? title.textContent.trim() : '',
       text: text ? text.textContent.trim() : '',
-      href: link ? link.href : ''
+      href: link ? link.href : '',
+      tags: tags
     });
   }
 

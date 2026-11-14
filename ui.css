@@ -171,6 +171,7 @@ h1 {
 .page {
   --scrollbar-push: 45px;
   height: 100%;
+  position: relative;
   overflow-y: scroll;
   padding-right: var(--scrollbar-push);
   margin-right: calc(-1 * var(--scrollbar-push));
@@ -214,14 +215,14 @@ h1 {
   padding-left: 17px;
 }
 
-.page:not(#news) > p {
+.page:not(#news):not(#notification) > p {
   color: #000;
   font-weight: bold;
-  margin: 0;
 }
 
-.page:not(#news) > *:not(:last-child) {
-  margin-bottom: 18px;
+.page:not(#news) > *:not(:last-child),
+.page#notification > div > *:not(:last-child) {
+  margin-bottom: 14px;
 }
 
 .page button {
@@ -260,6 +261,11 @@ h1 {
 .page:not(#news) label {
   display: flex;
   gap: 10px;
+}
+
+.page#notification h4 {
+  font-family: sans-serif;
+  text-align: center;
 }
 
 .tooltip-wrap {
@@ -319,7 +325,7 @@ article > figure {
   margin-right: 10px;
   background-image: url('assets/picture-frame.webp');
   background-size: 100% 100%;
-  width: 80px;
+  width: 76px;
 }
 
 article > figure > a {

@@ -36,6 +36,17 @@ IDR_ASSET_W101_LOGO     RCDATA  "assets/w101-logo.webp"
 IDR_ASSET_WINDOW_BORDER RCDATA  "assets/window-border.webp"
 IDR_ASSET_WIZ_16X16     RCDATA  "assets/wiz-16x16.png"
 IDR_ASSET_HELP          RCDATA  "assets/help.png"
+IDR_ASSET_PICTURE_FRAME RCDATA  "assets/picture-frame.webp"
+IDR_NEWS_PET            RCDATA  "assets/news-types/pet.png"
+IDR_NEWS_MEMBER         RCDATA  "assets/news-types/member.png"
+IDR_NEWS_CROWNS         RCDATA  "assets/news-types/crowns.png"
+IDR_NEWS_MOUNT          RCDATA  "assets/news-types/mount.png"
+IDR_NEWS_BUNDLE         RCDATA  "assets/news-types/bundle.png"
+IDR_NEWS_OTHER          RCDATA  "assets/news-types/other.png"
+IDR_ASSET_GOBBLER_PROF  RCDATA  "assets/gobblerprof.webp"
+IDR_ASSET_FOLLOW_INSTRUCTIONS RCDATA "assets/followinstructions.webp"
+IDR_ASSET_PACK_GOBBLER  RCDATA  "assets/packgobbler.webp"
+IDR_ASSET_SCHOOLS_DOODLE RCDATA "assets/schools-doodle.webp"
 
 // ---------------------------------------------------------------------------
 //  Assets : backgrounds

@@ -86,20 +86,29 @@ static void run_patch()
         auto all_files = patch_get_file_list(info, manifest);
         LOG_STAT("CORE_PATCH", "Manifest: " + std::to_string(all_files.size()) + " files");
 
-        PatchCache cache  = patch_cache_load(cache_path);
-        auto       needed = patch_filter_needed(all_files, cache, game_root);
-        patch_cache_save(cache_path, cache);
+        PostMessage(g_hwnd, WM_PATCH_SHOW, 0, 0);
+        PostMessage(g_hwnd, WM_PATCH_FILE, 0,
+                    reinterpret_cast<LPARAM>(new std::string("Checking files")));
+
+        PatchCache cache = patch_cache_load(cache_path);
+        bool cache_changed = false;
+        auto needed = patch_filter_needed(all_files, cache, game_root, cache_changed,
+            [](int percent) {
+                PostMessage(g_hwnd, WM_PATCH_FILE,
+                            static_cast<WPARAM>(percent),
+                            reinterpret_cast<LPARAM>(new std::string("Checking files")));
+            });
+        if (cache_changed)
+            patch_cache_save(cache_path, cache);
         LOG_STAT("CORE_PATCH", "Need update: " + std::to_string(needed.size()) + " files");
 
         if (needed.empty()) {
-            PostMessage(g_hwnd, WM_PATCH_SHOW,  0, 0);
             PostMessage(g_hwnd, WM_PATCH_FILE,  100, reinterpret_cast<LPARAM>(new std::string()));
             PostMessage(g_hwnd, WM_PATCH_TOTAL, 100, 0);
             LOG_STAT("CORE_PATCH", "Already up to date.");
             return;
         }
 
-        PostMessage(g_hwnd, WM_PATCH_SHOW, 0, 0);
 
         ULONGLONG patch_start = GetTickCount64();
 
@@ -318,7 +327,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
     case WM_LOGIN_ERROR: {
         std::string* err = reinterpret_cast<std::string*>(lParam);
-        MessageBoxA(hwnd, err->c_str(), "Login Failed", MB_OK | MB_ICONERROR);
+        const bool quarantined = err->find("AuthQuarantined") != std::string::npos;
+        const bool banned      = err->find("AuthBanned") != std::string::npos;
+        if (quarantined || banned) {
+            std::wstring script = L"__showAccountNotification('"
+                + std::wstring(quarantined ? L"AuthQuarantined" : L"AuthBanned")
+                + L"');";
+            webview_execute(script.c_str());
+        } else {
+            MessageBoxA(hwnd, err->c_str(), "Login Failed", MB_OK | MB_ICONERROR);
+        }
         webview_execute(L"__showLoginError();");
         delete err;
         return 0;

@@ -33,6 +33,17 @@
 #define IDR_ASSET_WINDOW_BORDER     121
 #define IDR_ASSET_WIZ_16X16         122
 #define IDR_ASSET_HELP              140
+#define IDR_ASSET_PICTURE_FRAME     141
+#define IDR_NEWS_PET                142
+#define IDR_NEWS_MEMBER             143
+#define IDR_NEWS_CROWNS             144
+#define IDR_NEWS_MOUNT              145
+#define IDR_NEWS_BUNDLE             146
+#define IDR_NEWS_OTHER              147
+#define IDR_ASSET_GOBBLER_PROF      148
+#define IDR_ASSET_FOLLOW_INSTRUCTIONS 149
+#define IDR_ASSET_PACK_GOBBLER      150
+#define IDR_ASSET_SCHOOLS_DOODLE    151
 
 #define IDR_BG_1                    123
 #define IDR_BG_2                    124
