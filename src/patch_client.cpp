@@ -187,6 +187,35 @@ static bool wad_header_ok(const std::string& path, uint32_t header_size)
     return parse_wad_entries(path, entries);
 }
 
+static bool wad_directory_current(const std::string& path, uint32_t header_size)
+{
+    if (header_size == 0 || file_size_or_zero(path) < header_size)
+        return false;
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return false;
+    char magic[5]{};
+    f.read(magic, 5);
+    if (!f || std::memcmp(magic, "KIWAD", 5) != 0) return false;
+    uint32_t version = 0, num_files = 0;
+    f.read(reinterpret_cast<char*>(&version), 4);
+    f.read(reinterpret_cast<char*>(&num_files), 4);
+    if (!f) return false;
+    if (version >= 2) {
+        uint8_t padding = 0;
+        f.read(reinterpret_cast<char*>(&padding), 1);
+        if (!f) return false;
+    }
+    for (uint32_t i = 0; i < num_files; ++i) {
+        uint32_t name_size = 0;
+        f.seekg(17, std::ios::cur);
+        f.read(reinterpret_cast<char*>(&name_size), 4);
+        if (!f || name_size > 10u * 1024u * 1024u) return false;
+        f.seekg(name_size, std::ios::cur);
+        if (!f) return false;
+    }
+    return static_cast<uint64_t>(f.tellg()) == header_size;
+}
+
 static std::string package_stem(const std::string& rel)
 {
     std::string stem = rel;
@@ -577,7 +606,10 @@ struct PatchHttpClient {
     {
         DeleteFileA((dest + ".utd").c_str());
 
-        if (file_size_or_zero(dest) < header_size) {
+        // A short file needs a header. A full-size file can still be an old
+        // directory; write_wad_header truncates, then the range loop refills
+        // the body against the new offsets.
+        if (!wad_directory_current(dest, header_size)) {
             if (!write_wad_header(url + ".hdr.gz", dest, out_err))
                 return GetResult::Retriable;
             LOG_STAT("PATCH_CLIENT", "wrote " + display_name + " header ("
@@ -589,6 +621,26 @@ struct PatchHttpClient {
             off = header_size;
 
         const uint64_t CHUNK = 4ull * 1024 * 1024;
+        const uint64_t SMALL = 256ull * 1024;
+
+        auto pull = [&](uint64_t a, uint64_t b, std::vector<uint8_t>& chunk) -> bool {
+            std::string err;
+            for (int t = 0; t < 3; ++t) {
+                if (t > 0) {
+                    Sleep(static_cast<DWORD>(300 * t));
+                    try { reconnect(); }
+                    catch (const std::runtime_error& e) {
+                        out_err = e.what();
+                        continue;
+                    }
+                }
+                chunk.clear();
+                if (get_range(url, a, b, chunk, err) && !chunk.empty())
+                    return true;
+                out_err = err.empty() ? "range failed" : err;
+            }
+            return false;
+        };
 
         while (off < expected_size) {
             uint64_t end = off + CHUNK - 1;
@@ -596,48 +648,32 @@ struct PatchHttpClient {
                 end = expected_size - 1;
 
             std::vector<uint8_t> chunk;
-            std::string range_err;
-            if (get_range(url, off, end, chunk, range_err) && !chunk.empty()) {
-                if (!write_at(dest, off, chunk.data(), chunk.size())) {
-                    out_err = "write failed at offset " + std::to_string(off);
-                    return GetResult::Retriable;
+            if (!pull(off, end, chunk)) {
+                while (off <= end) {
+                    uint64_t sub_end = off + SMALL - 1;
+                    if (sub_end > end)
+                        sub_end = end;
+                    if (!pull(off, sub_end, chunk)) {
+                        out_err = "range failed at offset " + std::to_string(off)
+                                  + (out_err.empty() ? std::string() : ": " + out_err);
+                        return GetResult::Retriable;
+                    }
+                    if (!write_at(dest, off, chunk.data(), chunk.size())) {
+                        out_err = "write failed at offset " + std::to_string(off);
+                        return GetResult::Retriable;
+                    }
+                    off += chunk.size();
+                    if (on_progress)
+                        on_progress(display_name, http_pct(off, expected_size));
                 }
-                off += chunk.size();
-                if (on_progress)
-                    on_progress(display_name, http_pct(off, expected_size));
                 continue;
             }
 
-            const uint64_t probe0 = off + 64;
-            const uint64_t probe1 = (probe0 + 65535 < expected_size)
-                ? probe0 + 65535 : expected_size - 1;
-            if (probe0 < expected_size
-                && get_range(url, probe0, probe1, chunk, range_err)
-                && !chunk.empty()) {
-                if (write_at(dest, probe0, chunk.data(), chunk.size())) {
-                    off = probe0 + chunk.size();
-                    if (on_progress)
-                        on_progress(display_name, http_pct(off, expected_size));
-                    continue;
-                }
+            if (!write_at(dest, off, chunk.data(), chunk.size())) {
+                out_err = "write failed at offset " + std::to_string(off);
+                return GetResult::Retriable;
             }
-
-            std::vector<WadEntry> entries;
-            if (parse_wad_entries(dest, entries)) {
-                for (const auto& e : entries) {
-                    const uint64_t e0 = e.offset;
-                    const uint64_t e1 = e0 + e.zip_size;
-                    if (e.zip_size == 0 || e1 <= off || e0 > end)
-                        continue;
-                    std::vector<uint8_t> block;
-                    std::string berr;
-                    if (!get_range(url, e0, e1 - 1, block, berr) || block.empty())
-                        continue;
-                    write_at(dest, e0, block.data(), block.size());
-                }
-            }
-
-            off = end + 1;
+            off += chunk.size();
             if (on_progress)
                 on_progress(display_name, http_pct(off, expected_size));
         }
@@ -971,14 +1007,15 @@ std::vector<PatchFile> patch_get_file_list(const PatchInfo& info,
         PatchFile pf{};
         pf.src_name        = read_str_le(p, end);
         pf.tar_name        = read_str_le(p, end);
-        if (p + 28 > end) break; // 6 known u32s (24) + 1 trailing u32 (4)
+        if (p + 24 > end) break;
         pf.file_type       = read_u32(p); p += 4;
         pf.size            = read_u32(p); p += 4;
         pf.header_size     = read_u32(p); p += 4;
         pf.compressed_size = read_u32(p); p += 4;
         pf.crc             = read_u32(p); p += 4;
         pf.header_crc      = read_u32(p); p += 4;
-        p += 4; // trailing u32 present in every entry
+        if (p + 4 <= end)
+            p += 4;
 
         // Skip entries with no CDN path.  PatchClient files are not part of
         // the game install we maintain.
@@ -1094,6 +1131,8 @@ std::vector<PatchFile> patch_filter_needed(const std::vector<PatchFile>& all,
             disk_ok = on_disk >= pf.size;
         else
             disk_ok = json_match;
+        if (disk_ok && streamed && !wad_directory_current(dest, pf.header_size))
+            disk_ok = false;
 
         bool up_to_date = false;
         if (disk_ok && json_match) {
