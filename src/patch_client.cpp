@@ -12,6 +12,7 @@
 #endif
 #include <windows.h>
 #include <winhttp.h>
+#include <windns.h>
 
 #include <stdexcept>
 #include <fstream>
@@ -19,10 +20,18 @@
 #include <vector>
 #include <cstring>
 #include <cctype>
+#include <algorithm>
+#include <chrono>
+#include <condition_variable>
+#include <deque>
+#include <filesystem>
+#include <mutex>
+#include <thread>
 
 #include "zlib.h"
 
 #pragma comment(lib, "winhttp.lib")
+#pragma comment(lib, "dnsapi.lib")
 
 // ---------------------------------------------------------------------------
 //  gz_decompress : decompress a gzip buffer using zlib.
@@ -117,7 +126,14 @@ static bool write_at(const std::string& path, uint64_t off, const uint8_t* p, si
     return static_cast<bool>(f);
 }
 
-struct WadEntry { uint32_t offset; uint32_t zip_size; uint32_t crc; };
+// zip_size is the on-disk payload: size when stored, zip_size when deflated.
+struct WadEntry {
+    uint32_t offset;
+    uint32_t zip_size;
+    uint32_t crc;
+    uint32_t size;
+    bool     zipped;
+};
 
 static bool parse_wad_entries(const std::string& wad_path, std::vector<WadEntry>& out)
 {
@@ -325,6 +341,194 @@ static void write_patchinfo_crc(const std::string& game_root,
     out.write(reinterpret_cast<const char*>(&ts), 8);
 }
 
+static bool verify_wad(const std::string& path, std::vector<WadEntry>& bad)
+{
+    bad.clear();
+    std::vector<WadEntry> entries;
+    if (!parse_wad_entries(path, entries))
+        return false;
+    const uint64_t file_size = file_size_or_zero(path);
+
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return false;
+
+    std::sort(entries.begin(), entries.end(),
+              [](const WadEntry& a, const WadEntry& b) { return a.offset < b.offset; });
+
+    std::vector<uint8_t> in;
+    std::vector<uint8_t> out(256 * 1024);
+    z_stream zs{};
+    if (inflateInit(&zs) != Z_OK)
+        return false;
+
+    for (const auto& e : entries) {
+        if (static_cast<uint64_t>(e.offset) + e.zip_size > file_size) {
+            bad.push_back(e);
+            continue;
+        }
+        if (!e.zipped || e.zip_size == 0)
+            continue;
+
+        in.resize(e.zip_size);
+        f.seekg(static_cast<std::streamoff>(e.offset));
+        f.read(reinterpret_cast<char*>(in.data()), static_cast<std::streamsize>(in.size()));
+        if (!f) {
+            f.clear();
+            bad.push_back(e);
+            continue;
+        }
+
+        inflateReset(&zs);
+        zs.next_in  = in.data();
+        zs.avail_in = static_cast<uInt>(in.size());
+        uint64_t produced = 0;
+        int rc = Z_OK;
+        while (rc == Z_OK) {
+            zs.next_out  = out.data();
+            zs.avail_out = static_cast<uInt>(out.size());
+            rc = inflate(&zs, Z_NO_FLUSH);
+            produced += out.size() - zs.avail_out;
+            if (rc == Z_BUF_ERROR && zs.avail_in == 0)
+                break;
+        }
+        if (rc != Z_STREAM_END || produced != e.size)
+            bad.push_back(e);
+    }
+    inflateEnd(&zs);
+    return bad.empty();
+}
+
+// ---------------------------------------------------------------------------
+//  WadVerifier : one background thread that runs verify_wad on finished
+//  downloads while the next file is fetched.  Results are collected by the
+//  download thread, which alone writes the cache and PatchInfo records.
+// ---------------------------------------------------------------------------
+class WadVerifier {
+public:
+    struct Result {
+        size_t                index;
+        bool                  ok;
+        std::vector<WadEntry> bad;
+    };
+
+    WadVerifier() : worker_([this] { run(); }) {}
+
+    ~WadVerifier()
+    {
+        {
+            std::lock_guard<std::mutex> lock(mu_);
+            stop_ = true;
+        }
+        cv_.notify_all();
+        worker_.join();
+    }
+
+    WadVerifier(const WadVerifier&)            = delete;
+    WadVerifier& operator=(const WadVerifier&) = delete;
+
+    void post(size_t index, const std::string& path)
+    {
+        {
+            std::lock_guard<std::mutex> lock(mu_);
+            jobs_.push_back({ index, path });
+            ++pending_;
+        }
+        cv_.notify_all();
+    }
+
+    std::vector<Result> take()
+    {
+        std::lock_guard<std::mutex> lock(mu_);
+        std::vector<Result> out;
+        out.swap(results_);
+        pending_ -= out.size();
+        return out;
+    }
+
+    // Jobs posted and not yet taken.
+    size_t outstanding()
+    {
+        std::lock_guard<std::mutex> lock(mu_);
+        return pending_;
+    }
+
+    // Blocks up to ms for a result to arrive.
+    void wait_for_result(DWORD ms)
+    {
+        std::unique_lock<std::mutex> lock(mu_);
+        cv_.wait_for(lock, std::chrono::milliseconds(ms),
+                     [this] { return !results_.empty() || pending_ == 0; });
+    }
+
+private:
+    struct Job { size_t index; std::string path; };
+
+    void run()
+    {
+        for (;;) {
+            Job job;
+            {
+                std::unique_lock<std::mutex> lock(mu_);
+                cv_.wait(lock, [this] { return stop_ || !jobs_.empty(); });
+                if (stop_) return;
+                job = std::move(jobs_.front());
+                jobs_.pop_front();
+            }
+            Result r{ job.index, false, {} };
+            try {
+                r.ok = verify_wad(job.path, r.bad);
+            } catch (...) {
+                r.ok = false;
+            }
+            {
+                std::lock_guard<std::mutex> lock(mu_);
+                results_.push_back(std::move(r));
+            }
+            cv_.notify_all();
+        }
+    }
+
+    std::mutex              mu_;
+    std::condition_variable cv_;
+    std::deque<Job>         jobs_;
+    std::vector<Result>     results_;
+    size_t                  pending_ = 0;
+    bool                    stop_    = false;
+    std::thread             worker_;
+};
+
+// IP4_ADDRESS is network byte order: a.b.c.d sits in memory as a, b, c, d.
+static constexpr IP4_ADDRESS ip4(uint8_t a, uint8_t b, uint8_t c, uint8_t d)
+{
+    return static_cast<IP4_ADDRESS>(a) | (static_cast<IP4_ADDRESS>(b) << 8)
+         | (static_cast<IP4_ADDRESS>(c) << 16) | (static_cast<IP4_ADDRESS>(d) << 24);
+}
+
+// IPv4 A records for host from one DNS server, or from the system resolver
+// when dns_ip is 0.  Follows the Akamai CNAME chain.
+static std::vector<std::wstring> resolve_a(const std::wstring& host, IP4_ADDRESS dns_ip)
+{
+    std::vector<std::wstring> out;
+    IP4_ARRAY servers{};
+    servers.AddrCount    = 1;
+    servers.AddrArray[0] = dns_ip;
+
+    PDNS_RECORD rec = nullptr;
+    const DNS_STATUS st = DnsQuery_W(host.c_str(), DNS_TYPE_A,
+        DNS_QUERY_BYPASS_CACHE, dns_ip ? &servers : nullptr, &rec, nullptr);
+    if (st != 0 || !rec)
+        return out;
+    for (PDNS_RECORD r = rec; r; r = r->pNext) {
+        if (r->wType != DNS_TYPE_A || r->Flags.S.Section != DnsSectionAnswer)
+            continue;
+        const auto* b = reinterpret_cast<const uint8_t*>(&r->Data.A.IpAddress);
+        out.push_back(std::to_wstring(b[0]) + L"." + std::to_wstring(b[1]) + L"."
+                      + std::to_wstring(b[2]) + L"." + std::to_wstring(b[3]));
+    }
+    DnsRecordListFree(rec, DnsFreeRecordList);
+    return out;
+}
+
 // ---------------------------------------------------------------------------
 //  PatchHttpClient : owns one WinHTTP session + connection.
 //
@@ -333,6 +537,12 @@ static void write_patchinfo_crc(const std::string& game_root,
 //  reconnect() drops and reopens only the connection handle, keeping the
 //  session alive, which is enough to recover from a server-side reset (12030)
 //  without triggering another DNS query (12007).
+//
+//  switch_edge() moves to a different Akamai server for the same host.
+//  Edges cache objects independently: on 11/26 the two edges the local DNS
+//  returned cut Mob2-WorldData.wad off at 337,641,472 and dropped any Range
+//  starting inside the gap, while edges from public DNS served it whole.
+//  Once switched, the run stays on that edge.
 // ---------------------------------------------------------------------------
 enum class GetResult { Downloaded, Skipped, Retriable };
 
@@ -342,6 +552,11 @@ struct PatchHttpClient {
     std::vector<wchar_t> host_buf;
     INTERNET_PORT        port      = INTERNET_DEFAULT_HTTP_PORT;
     DWORD                req_flags = 0; // WINHTTP_FLAG_SECURE or 0
+
+    // targets[0] is the hostname; the rest are edge IPs, resolved on first switch.
+    std::vector<std::wstring> targets;
+    size_t                    target   = 0;
+    bool                      resolved = false;
 
     explicit PatchHttpClient(const std::string& any_cdn_url)
         : host_buf(256, L'\0')
@@ -387,10 +602,67 @@ struct PatchHttpClient {
     void reconnect()
     {
         if (conn) { WinHttpCloseHandle(conn); conn = nullptr; }
-        conn = WinHttpConnect(session, host_buf.data(), port, 0);
+        conn = WinHttpConnect(session, targets[target].c_str(), port, 0);
         if (!conn)
             throw std::runtime_error("PatchHttpClient::reconnect failed (err="
                                      + std::to_string(GetLastError()) + ")");
+    }
+
+    // Edges the system resolver did not return.  Public resolvers sit in
+    // different places, so Akamai answers them with different servers.
+    void resolve_edges()
+    {
+        resolved = true;
+        if (req_flags & WINHTTP_FLAG_SECURE)
+            return; // An IP target would fail certificate name checks.
+        const std::wstring host = targets[0];
+        const auto local = resolve_a(host, 0);
+        const IP4_ADDRESS servers[] = {
+            ip4(8, 8, 8, 8), ip4(1, 1, 1, 1), ip4(9, 9, 9, 9), ip4(208, 67, 222, 222),
+        };
+        for (IP4_ADDRESS dns : servers) {
+            for (const auto& ip : resolve_a(host, dns)) {
+                if (std::find(local.begin(), local.end(), ip) != local.end())
+                    continue;
+                if (std::find(targets.begin(), targets.end(), ip) != targets.end())
+                    continue;
+                targets.push_back(ip);
+            }
+        }
+        LOG_STAT("PATCH_CLIENT", "found " + std::to_string(targets.size() - 1)
+                 + " alternate CDN edges");
+    }
+
+    // Move to the next CDN edge (wrapping back to the hostname).
+    // Falls back to reconnect() when no alternates exist.
+    void switch_edge()
+    {
+        if (!resolved)
+            resolve_edges();
+        if (targets.size() < 2) {
+            reconnect();
+            return;
+        }
+        target = (target + 1) % targets.size();
+        std::string name;
+        for (wchar_t c : targets[target])
+            name += static_cast<char>(c);
+        LOG_STAT("PATCH_CLIENT", "switching CDN edge to " + name);
+        reconnect();
+    }
+
+    // Request on the current connection.  On an IP edge the Host header must
+    // still name the CDN host or Akamai will not route it.
+    HINTERNET open_request(const wchar_t* path)
+    {
+        HINTERNET req = WinHttpOpenRequest(conn, L"GET", path, nullptr,
+            WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, req_flags);
+        if (req && target != 0) {
+            const std::wstring host = L"Host: " + targets[0];
+            WinHttpAddRequestHeaders(req, host.c_str(), (DWORD)-1,
+                                     WINHTTP_ADDREQ_FLAG_ADD | WINHTTP_ADDREQ_FLAG_REPLACE);
+        }
+        return req;
     }
 
     // Download a URL into memory. Returns empty vector on 403/404/error.
@@ -409,8 +681,7 @@ struct PatchHttpClient {
         uc.dwUrlPathLength = static_cast<DWORD>(path_buf.size());
         if (!WinHttpCrackUrl(wurl.c_str(), 0, 0, &uc)) return {};
 
-        HINTERNET req = WinHttpOpenRequest(conn, L"GET", path_buf.data(), nullptr,
-            WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, req_flags);
+        HINTERNET req = open_request(path_buf.data());
         if (!req) return {};
 
         if (!WinHttpSendRequest(req, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
@@ -472,8 +743,7 @@ struct PatchHttpClient {
             return false;
         }
 
-        HINTERNET req = WinHttpOpenRequest(conn, L"GET", path_buf.data(), nullptr,
-            WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, req_flags);
+        HINTERNET req = open_request(path_buf.data());
         if (!req) {
             out_err = "WinHttpOpenRequest failed (err=" + std::to_string(GetLastError()) + ")";
             return false;
@@ -492,9 +762,8 @@ struct PatchHttpClient {
             WinHttpCloseHandle(req);
             req = nullptr;
             if (err == 12152 || err == 12030) {
-                try { reconnect(); } catch (...) {}
-                req = WinHttpOpenRequest(conn, L"GET", path_buf.data(), nullptr,
-                    WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, req_flags);
+                try { switch_edge(); } catch (...) {}
+                req = open_request(path_buf.data());
                 if (req) {
                     WinHttpAddRequestHeaders(req, hdrs.c_str(), (DWORD)-1,
                                              WINHTTP_ADDREQ_FLAG_ADD | WINHTTP_ADDREQ_FLAG_REPLACE);
@@ -628,7 +897,7 @@ struct PatchHttpClient {
             for (int t = 0; t < 3; ++t) {
                 if (t > 0) {
                     Sleep(static_cast<DWORD>(300 * t));
-                    try { reconnect(); }
+                    try { switch_edge(); }
                     catch (const std::runtime_error& e) {
                         out_err = e.what();
                         continue;
@@ -706,8 +975,7 @@ struct PatchHttpClient {
             return GetResult::Retriable;
         }
 
-        HINTERNET req = WinHttpOpenRequest(conn, L"GET", path_buf.data(), nullptr,
-            WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, req_flags);
+        HINTERNET req = open_request(path_buf.data());
         if (!req) {
             out_err = "WinHttpOpenRequest failed (err=" + std::to_string(GetLastError()) + ")";
             return GetResult::Retriable;
@@ -1170,6 +1438,15 @@ std::vector<PatchFile> patch_filter_needed(const std::vector<PatchFile>& all,
 
 // ---------------------------------------------------------------------------
 //  patch_update : download needed files, persist cache after each one.
+//
+//  WADs are checked by WadVerifier while the next file downloads, and are
+//  committed (JSON cache, PatchInfo CRC, LocalPackagesList) only once they
+//  pass.  Until then the JSON entry is gone and the CRC record holds a
+//  placeholder.
+//
+//  A WAD that fails is repaired after the download pass: first only its
+//  damaged entries are re-fetched from another CDN edge, then the whole file
+//  once.  If it still fails the patch fails and the file stays uncommitted.
 // ---------------------------------------------------------------------------
 void patch_update(const PatchInfo&              info,
                   const std::vector<PatchFile>&  files,
@@ -1182,101 +1459,235 @@ void patch_update(const PatchInfo&              info,
     // One session + connection for the entire run : one DNS lookup, reused TCP.
     PatchHttpClient client(info.url_prefix.empty() ? info.list_file_url : info.url_prefix);
 
-    int total     = static_cast<int>(files.size());
-    int completed = 0;
+    struct Item {
+        const PatchFile* pf = nullptr;
+        std::string      url;
+        std::string      rel;
+        std::string      key;
+        std::string      dest;
+        bool             streamed = false;
+        bool             wad      = false;
+    };
 
+    std::vector<Item> items;
+    items.reserve(files.size());
+    bool cache_dirty = false;
     for (const auto& pf : files) {
+        Item it;
+        it.pf = &pf;
         // Build CDN URL: ensure exactly one '/' between prefix and src_name.
-        std::string url = info.url_prefix;
-        if (!url.empty() && url.back() != '/' && !pf.src_name.empty() && pf.src_name.front() != '/')
-            url += '/';
-        url += pf.src_name + info.url_suffix;
+         it.url = info.url_prefix;
+        if (!it.url.empty() && it.url.back() != '/' && !pf.src_name.empty() && pf.src_name.front() != '/')
+            it.url += '/';
+        it.url += pf.src_name + info.url_suffix;
+        it.rel  = effective_rel_path(pf);
+        it.key  = it.rel;
+        for (auto& c : it.key) if (c == '\\') c = '/';
+        it.dest     = join_game_path(game_root, it.rel);
+        it.streamed = is_streamed_wad(pf, it.rel);
+        it.wad      = ends_with_ci(it.rel, ".wad");
 
-        // Derive the canonical install-relative path and the full on-disk dest.
-        std::string rel = effective_rel_path(pf);
-        std::string dest = game_root;
-        if (!dest.empty() && dest.back() != '\\' && dest.back() != '/')
-            dest += '\\';
-        std::string rel_backslash = rel;
-        for (auto& c : rel_backslash) if (c == '/') c = '\\';
-        dest += rel_backslash;
+        if (it.wad) {
+            if (cache.erase(it.key))
+                cache_dirty = true;
+            PatchFile placeholder = pf;
+            placeholder.crc = ~pf.crc;
+            write_patchinfo_crc(game_root, placeholder, it.rel);
+        }
+        items.push_back(std::move(it));
+    }
+    if (cache_dirty)
+        patch_cache_save(cache_path, cache);
 
-        make_parent_dirs(dest);
-
-        LOG_DBGM("CORE_PATCH_SYS", "Start downloading " + dest);
-
-        const bool streamed = is_streamed_wad(pf, rel);
-
-        // Complete-but-stale (CRC changed): replace.  A short type-5 file
-        // is extended in place from its current size, not truncated.
-        if (!streamed && pf.size > 0 && file_size_or_zero(dest) >= pf.size)
-            DeleteFileA(dest.c_str());
-        
+    // Returns false on 403/404.  Throws once the file stops making progress.
+    auto download = [&](const Item& it) -> bool {
+        const PatchFile& pf = *it.pf;
         std::string last_err;
-        bool downloaded = false;
-        bool skipped    = false;
-        bool gave_up    = false;
-        int  stall      = 0;
-        uint64_t last_sz = file_size_or_zero(dest);
+        int  stall   = 0;
+        uint64_t last_sz = file_size_or_zero(it.dest);
 
         for (int attempt = 0; ; ++attempt) {
             if (attempt > 0) {
                 Sleep(static_cast<DWORD>(1000 * (stall + 1)));
-                try { client.reconnect(); }
+                try { client.switch_edge(); }
                 catch (const std::runtime_error& e) {
                     last_err = e.what();
                     LOG_WARN("PATCH_CLIENT", "reconnect failed: " + last_err);
-                    if (++stall >= 3) { gave_up = true; break; }
+                    if (++stall >= 3)
+                        throw std::runtime_error("patch_update: " + last_err);
                     continue;
                 }
             }
 
-            auto result = streamed
-                ? client.download_ranged_wad(url, dest, rel, pf.header_size, pf.size,
+            auto result = it.streamed
+                ? client.download_ranged_wad(it.url, it.dest, it.rel, pf.header_size, pf.size,
                                              callbacks.on_file_progress, last_err)
-                : client.get(url, dest, rel, callbacks.on_file_progress,
+                : client.get(it.url, it.dest, it.rel, callbacks.on_file_progress,
                              last_err, pf.size);
 
-            if (result == GetResult::Downloaded) { downloaded = true; break; }
+            if (result == GetResult::Downloaded)
+                return true;
             if (result == GetResult::Skipped) {
-                skipped = true;
-                if (callbacks.on_file_progress) callbacks.on_file_progress(rel, 100);
-                break;
+                if (callbacks.on_file_progress) callbacks.on_file_progress(it.rel, 100);
+                return false;
             }
 
             LOG_WARN("PATCH_CLIENT", last_err);
-            const uint64_t now = file_size_or_zero(dest);
+            const uint64_t now = file_size_or_zero(it.dest);
             if (now > last_sz) { last_sz = now; stall = 0; }
-            else if (++stall >= 3) { gave_up = true; break; }
+            else if (++stall >= 3)
+                throw std::runtime_error("patch_update: " + last_err);
+        }
+    };
+
+    auto commit = [&](const Item& it) {
+        cache[it.key] = it.pf->crc;
+        patch_cache_save(cache_path, cache);
+        write_patchinfo_crc(game_root, *it.pf, it.rel);
+        ensure_local_package(game_root, it.rel);
+        if (it.wad && !it.streamed)
+            DeleteFileA((it.dest + ".utd").c_str());
+    };
+
+    // Re-fetch only the damaged byte ranges.  Neighbouring entries are merged
+    // because a CDN gap usually covers many consecutive entries.
+    auto repair_entries = [&](const Item& it, const std::vector<WadEntry>& bad) -> bool {
+        struct Span { uint64_t off; uint64_t end; };
+        std::vector<Span> spans;
+        for (const auto& e : bad) {
+            const uint64_t a = e.offset;
+            const uint64_t b = a + e.zip_size;
+            if (!spans.empty() && a <= spans.back().end + 65536
+                && b - spans.back().off <= (16ull << 20))
+                spans.back().end = (std::max)(spans.back().end, b);
+            else
+                spans.push_back({ a, b });
         }
 
-        if (gave_up)
-            throw std::runtime_error("patch_update: " + last_err);
+        std::vector<uint8_t> chunk;
+        for (const auto& s : spans) {
+            uint64_t off = s.off;
+            int fails = 0;
+            while (off < s.end) {
+                std::string err;
+                if (client.get_range(it.url, off, s.end - 1, chunk, err) && !chunk.empty()) {
+                    if (chunk.size() > s.end - off)
+                        chunk.resize(static_cast<size_t>(s.end - off));
+                    if (!write_at(it.dest, off, chunk.data(), chunk.size()))
+                        return false;
+                    off += chunk.size();
+                    fails = 0;
+                    continue;
+                }
+                if (++fails >= 3) {
+                    LOG_WARN("PATCH_CLIENT", "repair of " + it.rel + " failed at offset "
+                             + std::to_string(off) + (err.empty() ? "" : ": " + err));
+                    return false;
+                }
+                try { client.switch_edge(); } catch (const std::runtime_error&) {}
+            }
+        }
+        return true;
+    };
 
-        if (skipped)
-            LOG_DBGM("CORE_PATCH_SYS", "skip " + dest);
-        else if (downloaded)
-            LOG_DBGM("CORE_PATCH_SYS", "Done downloading  " + dest);
+    WadVerifier verifier;
+    std::vector<std::pair<size_t, std::vector<WadEntry>>> failed;
 
-        const uint64_t got = file_size_or_zero(dest);
-        const bool complete_enough = pf.size == 0 || got >= pf.size;
+    auto collect = [&] {
+        for (auto& r : verifier.take()) {
+            const Item& it = items[r.index];
+            if (r.ok) {
+                commit(it);
+                continue;
+            }
+            LOG_WARN("PATCH_CLIENT", it.rel + " failed verification ("
+                     + (r.bad.empty() ? std::string("unreadable directory")
+                                      : std::to_string(r.bad.size()) + " damaged entries")
+                     + ")");
+            failed.emplace_back(r.index, std::move(r.bad));
+        }
+    };
 
+    auto overall = [&](int pct) {
+        if (callbacks.on_overall_progress) callbacks.on_overall_progress(pct);
+    };
+
+    const size_t total = items.size();
+    for (size_t i = 0; i < total; ++i) {
+        const Item& it = items[i];
+        const PatchFile& pf = *it.pf;
+
+        make_parent_dirs(it.dest);
+        LOG_DBGM("CORE_PATCH_SYS", "Start downloading " + it.dest);
+
+        // Complete-but-stale (CRC changed): replace.  A short type-5 file
+        // is extended in place from its current size, not truncated.
+        if (!it.streamed && pf.size > 0 && file_size_or_zero(it.dest) >= pf.size)
+            DeleteFileA(it.dest.c_str());
+
+        const bool downloaded = download(it);
+        if (downloaded)
+            LOG_DBGM("CORE_PATCH_SYS", "Done downloading  " + it.dest);
+        else
+            LOG_DBGM("CORE_PATCH_SYS", "skip " + it.dest);
+
+        const bool complete_enough = pf.size == 0 || file_size_or_zero(it.dest) >= pf.size;
         if (downloaded && complete_enough) {
-            std::string key = rel;
-            for (auto& c : key) if (c == '\\') c = '/';
-            cache[key] = pf.crc;
-            patch_cache_save(cache_path, cache);
-            write_patchinfo_crc(game_root, pf, rel);
-            ensure_local_package(game_root, rel);
+            if (it.wad) verifier.post(i, it.dest);
+            else        commit(it);
+        }
+        collect();
 
-            if (!streamed && ends_with_ci(rel, ".wad"))
-                DeleteFileA((dest + ".utd").c_str());
+        // 100% is reported by the caller once verification is done.
+        overall((std::min)(99, static_cast<int>(((i + 1) * 100) / total)));
+    }
+
+    const size_t queued = verifier.outstanding();
+    while (verifier.outstanding() > 0) {
+        if (callbacks.on_file_progress) {
+            const size_t left = verifier.outstanding();
+            callbacks.on_file_progress("Verifying files",
+                static_cast<int>(((queued - left) * 100) / (queued ? queued : 1)));
+        }
+        verifier.wait_for_result(200);
+        collect();
+    }
+
+    for (auto& entry : failed) {
+        const Item& it = items[entry.first];
+        const std::vector<WadEntry>& bad = entry.second;
+        if (callbacks.on_file_progress) callbacks.on_file_progress(it.rel, 0);
+
+        std::vector<WadEntry> still;
+        bool ok = false;
+        if (!bad.empty()) {
+            LOG_STAT("PATCH_CLIENT", "repairing " + std::to_string(bad.size())
+                     + " entries in " + it.rel);
+            try { client.switch_edge(); } catch (const std::runtime_error&) {}
+            ok = repair_entries(it, bad) && verify_wad(it.dest, still);
         }
 
-        ++completed;
-        if (callbacks.on_overall_progress) {
-            int pct = (total > 0) ? (completed * 100 / total) : 100;
-            callbacks.on_overall_progress(pct);
+        if (!ok) {
+            LOG_STAT("PATCH_CLIENT", "re-downloading " + it.rel);
+            if (it.streamed) {
+                std::error_code ec;
+                std::filesystem::resize_file(it.dest, it.pf->header_size, ec);
+            } else {
+                DeleteFileA(it.dest.c_str());
+            }
+            if (!download(it))
+                throw std::runtime_error("patch_update: " + it.rel
+                                         + " is damaged and no longer on the CDN");
+            ok = verify_wad(it.dest, still);
         }
+
+        if (!ok)
+            throw std::runtime_error("patch_update: " + it.rel + " is still damaged after "
+                                     "re-download (" + std::to_string(still.size())
+                                     + " bad entries)");
+
+        LOG_STAT("PATCH_CLIENT", "repaired " + it.rel);
+        commit(it);
+        if (callbacks.on_file_progress) callbacks.on_file_progress(it.rel, 100);
     }
 }

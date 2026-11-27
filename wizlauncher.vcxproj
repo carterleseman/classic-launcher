@@ -198,11 +198,11 @@
     <None Include="packages.config" />
     <None Include="ui.html" />
     <None Include="ui.css" />
+    <None Include="ui.js" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="wizlauncher.rc" />
   </ItemGroup>
-
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
     <Import Project="packages\Microsoft.Web.WebView2.1.0.3912.50\build\native\Microsoft.Web.WebView2.targets" Condition="Exists('packages\Microsoft.Web.WebView2.1.0.3912.50\build\native\Microsoft.Web.WebView2.targets')" />

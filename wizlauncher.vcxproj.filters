@@ -24,6 +24,7 @@
     <None Include="packages.config" />
     <None Include="ui.html" />
     <None Include="ui.css" />
+    <None Include="ui.js" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\config.cpp">

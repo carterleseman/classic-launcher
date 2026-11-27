@@ -139,6 +139,7 @@ struct EmbeddedFile { int id; const char* rel_path; };
 static const EmbeddedFile k_ui_files[] = {
     { IDR_UI_HTML,               "ui.html"                          },
     { IDR_UI_CSS,                "ui.css"                           },
+    { IDR_UI_JS,                 "ui.js"                            },
     { IDR_ASSET_BANNER,          "assets\\banner.webp"              },
     { IDR_ASSET_BUG,             "assets\\bug.png"                  },
     { IDR_ASSET_BUTTON_BG,       "assets\\button-background.png"    },
@@ -162,6 +163,7 @@ static const EmbeddedFile k_ui_files[] = {
     { IDR_ASSET_WIZ_16X16,       "assets\\wiz-16x16.png"            },
     { IDR_ASSET_HELP,            "assets\\help.png"                 },
     { IDR_ASSET_PICTURE_FRAME,   "assets\\picture-frame.webp"       },
+    { IDR_ASSET_CAROUSEL_FRAME,  "assets\\carousel-frame.webp"      },
     { IDR_NEWS_PET,              "assets\\news-types\\pet.png"      },
     { IDR_NEWS_MEMBER,           "assets\\news-types\\member.png"   },
     { IDR_NEWS_CROWNS,           "assets\\news-types\\crowns.png"   },
@@ -274,7 +276,11 @@ static void create_main_controller(ICoreWebView2Environment* env, HWND hwnd)
                 g_webview->get_Settings(&settings);
                 settings->put_AreDefaultContextMenusEnabled(FALSE);
                 settings->put_IsStatusBarEnabled(FALSE);
-                settings->put_AreDevToolsEnabled(FALSE);
+                #ifdef _DEBUG
+                    settings->put_AreDevToolsEnabled(TRUE);
+                #else
+                    settings->put_AreDevToolsEnabled(FALSE);
+                #endif
 
                 // One-shot NavigationCompleted: initialise the UI with stored config.
                 auto token = std::make_shared<EventRegistrationToken>();
@@ -322,6 +328,7 @@ static void create_main_controller(ICoreWebView2Environment* env, HWND hwnd)
                                 + (g_config.steam_tracking     ? L"true" : L"false") + L","
                                 + (g_config.remember_password  ? L"true" : L"false") + L","
                                 + (g_config.enable_accounts    ? L"true" : L"false") + L","
+                                + (g_config.news_carousel      ? L"true" : L"false") + L","
                                 + L"'" + w_starting_page + L"');";
                             sender->ExecuteScript(settings_script.c_str(), nullptr);
                             sender->ExecuteScript(make_resolution_init_script().c_str(), nullptr);
@@ -378,6 +385,7 @@ static void create_main_controller(ICoreWebView2Environment* env, HWND hwnd)
                                 g_config.steam_tracking     = json_get_wbool(msg, L"steam_tracking");
                                 g_config.remember_password  = json_get_wbool(msg, L"remember_password");
                                 g_config.enable_accounts    = json_get_wbool(msg, L"enable_accounts");
+                                g_config.news_carousel      = json_get_wbool(msg, L"news_carousel");
                                 g_config.starting_page      = wstring_to_narrow(json_get_wstring(msg, L"starting_page"));
                                 if (!g_config.enable_accounts && g_config.starting_page == "Accounts")
                                     g_config.starting_page.clear();
@@ -514,9 +522,14 @@ static void create_main_controller(ICoreWebView2Environment* env, HWND hwnd)
                     nullptr
                 );
 
+                if (g_config.news_carousel)
+                    g_webview->AddScriptToExecuteOnDocumentCreated(L"window.__newsCarouselAtStart = true;", nullptr);
+
                 resize_webview(hwnd);
                 g_webview->Navigate(uri.c_str());
-                //g_webview->OpenDevToolsWindow();
+                #ifdef _DEBUG
+                    g_webview->OpenDevToolsWindow();
+                #endif
 
                 return S_OK;
             }

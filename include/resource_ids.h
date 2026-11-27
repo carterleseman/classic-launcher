@@ -10,6 +10,7 @@
 
 #define IDR_UI_HTML                 101
 #define IDR_UI_CSS                  102
+#define IDR_UI_JS                   153
 
 #define IDR_ASSET_BANNER            103
 #define IDR_ASSET_BUG               104
@@ -44,6 +45,7 @@
 #define IDR_ASSET_FOLLOW_INSTRUCTIONS 149
 #define IDR_ASSET_PACK_GOBBLER      150
 #define IDR_ASSET_SCHOOLS_DOODLE    151
+#define IDR_ASSET_CAROUSEL_FRAME    152
 
 #define IDR_BG_1                    123
 #define IDR_BG_2                    124

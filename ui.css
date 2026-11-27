@@ -161,6 +161,129 @@ aside {
   transform: scaleX(-1);
 }
 
+#news {
+  opacity: 0;
+  transition: opacity 0.8s ease;
+}
+
+#news.ready {
+  opacity: 1;
+}
+
+#news-carousel {
+  display: none;
+}
+
+section.carousel {
+  background-image: none;
+}
+
+/* #news keeps its box so .section-footer stays where it sits normally */
+section.carousel > #news {
+  visibility: hidden;
+}
+
+section.carousel > #news-carousel {
+  display: block;
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 384px;
+  opacity: 0;
+  transition: opacity 0.8s ease;
+}
+
+section.carousel > #news-carousel.ready {
+  opacity: 1;
+}
+
+.carousel-card {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 293px;
+  height: 160px;
+  border-radius: 14px;
+  box-shadow: 0 0 16px #000;
+  cursor: pointer;
+  transition: transform 0.8s ease, opacity 0.5s ease;
+}
+
+.carousel-card > img {
+  position: absolute;
+  inset: 3px;
+  width: calc(100% - 6px);
+  height: calc(100% - 6px);
+  object-fit: cover;
+  border-radius: 11px;
+  transition: filter 0.3s ease;
+}
+
+.carousel-card.front:hover > img {
+  filter: brightness(0.45);
+}
+
+.carousel-title {
+  position: absolute;
+  inset: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-inline: 22px;
+  text-align: center;
+  font-family: "WizardRegular";
+  font-size: 1.5rem;
+  line-height: 1.15;
+  color: #F9D539;
+  -webkit-text-stroke: 3px #000;
+  paint-order: stroke fill;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  z-index: 1;
+}
+
+.carousel-card.front:hover > .carousel-title {
+  opacity: 1;
+}
+
+.carousel-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: url('assets/carousel-frame.webp') 0 0 / 100% 100% no-repeat;
+}
+
+.carousel-card:not(.front)::before {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 11px;
+  background-color: rgba(0, 0, 0, 0.35);
+  z-index: 1;
+  transition: background-color 0.3s ease;
+}
+
+.carousel-card:not(.front):hover::before {
+  background-color: rgba(0, 0, 0, 0.1);
+}
+
+section.carousel > .page-controls {
+  left: 4px;
+  top: 181px;
+  width: 392px;
+  z-index: 20;
+  pointer-events: none;
+}
+
+section.carousel > .page-controls > h1 {
+  visibility: hidden;
+}
+
+section.carousel > .page-controls > button {
+  width: 22px;
+  filter: drop-shadow(0 0 3px #000);
+  pointer-events: auto;
+}
+
 h1 {
   font-family: "WizardRegular";
   color: #653B0B;

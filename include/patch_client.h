@@ -114,7 +114,9 @@ std::vector<PatchFile> patch_filter_needed(const std::vector<PatchFile>& all,
 // ---------------------------------------------------------------------------
 //  High-level update: downloads every file in `files`, updates the cache
 //  after each one (so progress survives an interrupted run), and fires the
-//  callbacks during and after each download.
+//  callbacks during and after each download.  WADs are verified in the
+//  background and committed only once every deflated entry inflates; a
+//  damaged WAD is repaired, and if it cannot be, this throws.
 // ---------------------------------------------------------------------------
 void patch_update(const PatchInfo&              info,
                   const std::vector<PatchFile>&  files,

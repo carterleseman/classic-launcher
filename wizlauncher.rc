@@ -10,6 +10,7 @@ IDI_APP_ICON            ICON    "wiz.ico"
 // ---------------------------------------------------------------------------
 IDR_UI_HTML             RCDATA  "ui.html"
 IDR_UI_CSS              RCDATA  "ui.css"
+IDR_UI_JS               RCDATA  "ui.js"
 
 // ---------------------------------------------------------------------------
 //  Assets : root
@@ -37,6 +38,7 @@ IDR_ASSET_WINDOW_BORDER RCDATA  "assets/window-border.webp"
 IDR_ASSET_WIZ_16X16     RCDATA  "assets/wiz-16x16.png"
 IDR_ASSET_HELP          RCDATA  "assets/help.png"
 IDR_ASSET_PICTURE_FRAME RCDATA  "assets/picture-frame.webp"
+IDR_ASSET_CAROUSEL_FRAME RCDATA "assets/carousel-frame.webp"
 IDR_NEWS_PET            RCDATA  "assets/news-types/pet.png"
 IDR_NEWS_MEMBER         RCDATA  "assets/news-types/member.png"
 IDR_NEWS_CROWNS         RCDATA  "assets/news-types/crowns.png"

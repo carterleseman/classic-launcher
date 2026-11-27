@@ -54,6 +54,10 @@ struct AppConfig {
 
     // When true, the accounts page is available in the page carousel.
     bool enable_accounts = false;
+    
+    // When true, the Ravenwood News page shows the story images as a vertical
+    // carousel over the main background instead of the text list.
+    bool news_carousel = false;
 
     // Username of the currently selected account.
     std::string selected_account;

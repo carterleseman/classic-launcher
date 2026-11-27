@@ -306,6 +306,9 @@ void config_save(const AppConfig& cfg)
 
     if (cfg.enable_accounts)
         f << ",\n  \"enable_accounts\": true";
+        
+    if (cfg.news_carousel)
+        f << ",\n  \"news_carousel\": true";
 
     if (!cfg.selected_account.empty())
         f << ",\n  \"selected_account\": \"" << json_escape(cfg.selected_account) << "\"";
@@ -343,6 +346,7 @@ AppConfig config_load()
         cfg.steam_tracking      = json_get_bool(json, "steam_tracking");
         cfg.starting_page       = json_get(json, "starting_page");
         cfg.enable_accounts     = json_get_bool(json, "enable_accounts");
+        cfg.news_carousel       = json_get_bool(json, "news_carousel");
         cfg.selected_account    = json_get(json, "selected_account");
         cfg.remembered_username = json_get(json, "remembered_username");
         cfg.remember_password   = json_get_bool(json, "remember_password");
@@ -400,6 +404,7 @@ void config_log(const AppConfig& cfg)
     LOG_STAT("CORE_CONFIG", "steam_tracking      : " + std::string(yn(cfg.steam_tracking)));
     LOG_STAT("CORE_CONFIG", "starting_page       : " + cfg.starting_page);
     LOG_STAT("CORE_CONFIG", "enable_accounts     : " + std::string(yn(cfg.enable_accounts)));
+    LOG_STAT("CORE_CONFIG", "news_carousel       : " + std::string(yn(cfg.news_carousel)));
     LOG_STAT("CORE_CONFIG", "selected_account    : " + cfg.selected_account);
     LOG_STAT("CORE_CONFIG", "remembered_username : " + cfg.remembered_username);
     LOG_STAT("CORE_CONFIG", "remember_password   : " + std::string(yn(cfg.remember_password)));
